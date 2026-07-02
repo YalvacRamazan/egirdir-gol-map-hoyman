@@ -1,6 +1,19 @@
 import 'dart:async';
 import 'package:geolocator/geolocator.dart';
 
+/// Konum izni durumunu açıklayan sonuç sınıfı
+class LocationPermissionResult {
+  final bool granted;
+  final String reason; // kullanıcıya gösterilecek açıklama
+  final bool isPermanentlyDenied;
+
+  const LocationPermissionResult({
+    required this.granted,
+    required this.reason,
+    this.isPermanentlyDenied = false,
+  });
+}
+
 class LocationService {
   static final LocationService _instance = LocationService._internal();
   factory LocationService() => _instance;
@@ -10,39 +23,54 @@ class LocationService {
   final StreamController<Position> _positionController = StreamController<Position>.broadcast();
   
   bool _isBoostMode = false;
-  double _accuracyThreshold = 15.0; // Varsayılan doğruluk eşiği (metre)
-
   Stream<Position> get positionStream => _positionController.stream;
   bool get isBoostMode => _isBoostMode;
-  double get accuracyThreshold => _accuracyThreshold;
-
-  set accuracyThreshold(double value) {
-    _accuracyThreshold = value;
-  }
+  // accuracyThreshold doğrudan alan olarak tutulur (gereksiz getter/setter önlenir)
+  double accuracyThreshold = 15.0; // Varsayılan doğruluk eşiği (metre)
 
   /// Konum izinlerini kontrol eder ve ister.
+  /// Detaylı sonuç için [checkAndRequestPermissionDetailed] kullanın.
   Future<bool> checkAndRequestPermission() async {
+    final result = await checkAndRequestPermissionDetailed();
+    return result.granted;
+  }
+
+  /// Konum izinlerini kontrol eder; ret nedenini de döner.
+  Future<LocationPermissionResult> checkAndRequestPermissionDetailed() async {
     bool serviceEnabled;
     LocationPermission permission;
 
     serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      return false;
+      return const LocationPermissionResult(
+        granted: false,
+        reason: 'GPS/Konum servisi kapalı. Lütfen cihazınızın konum ayarlarını açın.',
+      );
     }
 
     permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
       permission = await Geolocator.requestPermission();
       if (permission == LocationPermission.denied) {
-        return false;
+        return const LocationPermissionResult(
+          granted: false,
+          reason: 'Konum izni reddedildi. Harita özelliklerini kullanmak için izin gereklidir.',
+        );
       }
     }
-    
+
     if (permission == LocationPermission.deniedForever) {
-      return false;
+      return const LocationPermissionResult(
+        granted: false,
+        reason: 'Konum izni kalıcı olarak engellendi. Lütfen Ayarlar → Uygulama İzinleri bölümünden izin verin.',
+        isPermanentlyDenied: true,
+      );
     }
 
-    return true;
+    return const LocationPermissionResult(
+      granted: true,
+      reason: '',
+    );
   }
 
   /// Konum takibini başlatır.
@@ -82,35 +110,35 @@ class LocationService {
   }
 
   /// Ayarları Boost veya Normal moduna göre belirler.
+  /// Not: timeLimit kullanılmıyor — aksi takdirde stream sürekli kapanıp yeniden açılır.
   LocationSettings _getSettings() {
     if (_isBoostMode) {
       // J7 Prime için maksimum hassasiyet, sürekli güncelleme (Güç tüketimi yüksektir)
       return const LocationSettings(
         accuracy: LocationAccuracy.best,
         distanceFilter: 0, // Her hareketi algıla
-        timeLimit: Duration(seconds: 10),
       );
     } else {
       // Normal/Pil Tasarrufu modu
       return const LocationSettings(
         accuracy: LocationAccuracy.medium,
         distanceFilter: 5, // 5 metrede bir güncelle
-        timeLimit: Duration(seconds: 30),
       );
     }
   }
 
   /// Konumun doğruluk değerinin kabul edilebilir olup olmadığını kontrol eder.
   bool isAccuracyAcceptable(Position position) {
-    return position.accuracy <= _accuracyThreshold;
+    return position.accuracy <= accuracyThreshold;
   }
 
   /// Cihazın anlık tek seferlik konumunu alır.
   Future<Position> getCurrentPosition({bool forceHighAccuracy = false}) async {
+    final accuracy = (forceHighAccuracy || _isBoostMode)
+        ? LocationAccuracy.best
+        : LocationAccuracy.high;
     return await Geolocator.getCurrentPosition(
-      desiredAccuracy: forceHighAccuracy || _isBoostMode 
-          ? LocationAccuracy.best 
-          : LocationAccuracy.high,
+      locationSettings: LocationSettings(accuracy: accuracy),
     );
   }
 

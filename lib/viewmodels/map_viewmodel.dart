@@ -5,19 +5,26 @@ import 'package:map/models/basket_model.dart';
 import 'package:map/services/database_service.dart';
 import 'package:map/services/location_service.dart';
 
-class MapViewModel extends ChangeNotifier {
+class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   final DatabaseService _dbService = DatabaseService();
   final LocationService _locationService = LocationService();
 
   List<BasketModel> _baskets = [];
   BasketModel? _activeBasket; // Şu an kaydedilmekte olan sepet (A noktası alındı, B bekleniyor)
   BasketModel? _selectedBasket; // Haritada gösterilmek üzere katalogdan seçilen sepet
-  
+
   Position? _currentPosition;
   bool _isPermissionGranted = false;
   bool _isTracking = false;
-  String _gpsStatusText = "GPS Başlatılmadı";
+  bool _isInitializing = true; // Başlangıç yüklemesi tamamlanmadı mı?
+  bool _hasInitialPosition = false; // İlk konum alındı mı? (haritayı otomatik götürmek için)
+  bool _isDisposed = false; // dispose() sonrası notifyListeners() hatasını önler
+  String _gpsStatusText = 'GPS Başlatılmadı';
   bool _isGpsAccuracyGood = false;
+
+  // İzin reddedilince kullanıcıya mesaj / ayarlara yönlendirme
+  String _permissionDeniedReason = '';
+  bool _isPermissionPermanentlyDenied = false;
 
   StreamSubscription<Position>? _locationSubscription;
 
@@ -29,14 +36,20 @@ class MapViewModel extends ChangeNotifier {
   bool get isPermissionGranted => _isPermissionGranted;
   bool get isTracking => _isTracking;
   bool get isBoostMode => _locationService.isBoostMode;
+  bool get isInitializing => _isInitializing;
+  bool get hasInitialPosition => _hasInitialPosition;
   String get gpsStatusText => _gpsStatusText;
   bool get isGpsAccuracyGood => _isGpsAccuracyGood;
   double get accuracyThreshold => _locationService.accuracyThreshold;
+  String get permissionDeniedReason => _permissionDeniedReason;
+  bool get isPermissionPermanentlyDenied => _isPermissionPermanentlyDenied;
 
   /// İlk kurulum ve verileri yükleme
   Future<void> init() async {
+    WidgetsBinding.instance.addObserver(this);
+
     await loadBaskets();
-    
+
     // Aktif (yarım kalmış) sepet varsa yükle
     final activeList = await _dbService.getActiveBaskets();
     if (activeList.isNotEmpty) {
@@ -44,38 +57,68 @@ class MapViewModel extends ChangeNotifier {
     }
 
     // İzinleri kontrol et ve konumu başlat
-    _isPermissionGranted = await _locationService.checkAndRequestPermission();
+    final permResult = await _locationService.checkAndRequestPermissionDetailed();
+    _isPermissionGranted = permResult.granted;
+
     if (_isPermissionGranted) {
       startLocationTracking();
     } else {
-      _gpsStatusText = "GPS İzni Verilmedi";
-      notifyListeners();
+      _permissionDeniedReason = permResult.reason;
+      _isPermissionPermanentlyDenied = permResult.isPermanentlyDenied;
+      _gpsStatusText = 'GPS İzni Verilmedi';
     }
+
+    _isInitializing = false;
+    _safeNotify();
+  }
+
+  /// İzni tekrar istemek için (permission overlay'deki "Yeniden Dene" butonundan çağrılır)
+  Future<bool> retryPermission() async {
+    final permResult =
+        await _locationService.checkAndRequestPermissionDetailed();
+    _isPermissionGranted = permResult.granted;
+    _permissionDeniedReason = permResult.reason;
+    _isPermissionPermanentlyDenied = permResult.isPermanentlyDenied;
+
+    if (_isPermissionGranted) {
+      startLocationTracking();
+    } else {
+      _gpsStatusText = 'GPS İzni Verilmedi';
+    }
+    _safeNotify();
+    return _isPermissionGranted;
   }
 
   /// Tüm sepetleri veritabanından yükler
   Future<void> loadBaskets() async {
     _baskets = await _dbService.getAllBaskets();
-    notifyListeners();
+    _safeNotify();
   }
 
   /// Konum takibini başlatır
   void startLocationTracking() {
     _isTracking = true;
     _locationService.startTracking(boostMode: _locationService.isBoostMode);
-    
+
     _locationSubscription?.cancel();
     _locationSubscription = _locationService.positionStream.listen(
       (Position position) {
         _currentPosition = position;
+
+        // İlk konum alındığında flag set et (harita bu konuma hareket edecek)
+        if (!_hasInitialPosition) {
+          _hasInitialPosition = true;
+        }
+
         _isGpsAccuracyGood = _locationService.isAccuracyAcceptable(position);
-        _gpsStatusText = "GPS Aktif (Hassasiyet: ${position.accuracy.toStringAsFixed(1)}m)";
-        notifyListeners();
+        _gpsStatusText =
+            'GPS Aktif (Hassasiyet: ${position.accuracy.toStringAsFixed(1)}m)';
+        _safeNotify();
       },
       onError: (error) {
-        _gpsStatusText = "GPS Hatası: $error";
+        _gpsStatusText = 'GPS Hatası: $error';
         _isGpsAccuracyGood = false;
-        notifyListeners();
+        _safeNotify();
       },
     );
   }
@@ -86,8 +129,8 @@ class MapViewModel extends ChangeNotifier {
     _locationSubscription?.cancel();
     _locationSubscription = null;
     _locationService.stopTracking();
-    _gpsStatusText = "GPS Durduruldu";
-    notifyListeners();
+    _gpsStatusText = 'GPS Durduruldu';
+    _safeNotify();
   }
 
   /// Boost modunu açar/kapatır
@@ -97,27 +140,22 @@ class MapViewModel extends ChangeNotifier {
       // Takip aktifse yeni ayarlarla yeniden başlatılır
       startLocationTracking();
     }
-    notifyListeners();
+    _safeNotify();
   }
 
   /// GPS doğruluk tolerans eşiğini günceller
   void updateAccuracyThreshold(double value) {
     _locationService.accuracyThreshold = value;
     if (_currentPosition != null) {
-      _isGpsAccuracyGood = _locationService.isAccuracyAcceptable(_currentPosition!);
+      _isGpsAccuracyGood =
+          _locationService.isAccuracyAcceptable(_currentPosition!);
     }
-    notifyListeners();
+    _safeNotify();
   }
 
   /// A Noktasını kaydeder (Sepet kaydını başlatır)
   Future<bool> startRecordingBasket(String name) async {
     if (_currentPosition == null) return false;
-
-    // Doğruluk kontrolü (Boost modu kapalıyken sinyal zayıfsa uyarabiliriz)
-    if (!_isGpsAccuracyGood) {
-      // Kullanıcıya yine de kaydetmek isteyip istemediği sorulabilir,
-      // ancak varsayılan olarak doğruluğu zorunlu kılmak güvenlik/doğruluk için iyidir.
-    }
 
     final newBasket = BasketModel(
       name: name,
@@ -130,9 +168,9 @@ class MapViewModel extends ChangeNotifier {
     final id = await _dbService.insertBasket(newBasket);
     _activeBasket = newBasket.copyWith(id: id);
     _selectedBasket = _activeBasket; // Kaydedilen sepeti haritada göster
-    
+
     await loadBaskets();
-    notifyListeners();
+    _safeNotify();
     return true;
   }
 
@@ -152,7 +190,7 @@ class MapViewModel extends ChangeNotifier {
     _selectedBasket = completedBasket; // Tamamlanan sepeti haritada göster
 
     await loadBaskets();
-    notifyListeners();
+    _safeNotify();
     return completedBasket;
   }
 
@@ -163,14 +201,14 @@ class MapViewModel extends ChangeNotifier {
       _activeBasket = null;
       _selectedBasket = null;
       await loadBaskets();
-      notifyListeners();
+      _safeNotify();
     }
   }
 
   /// Haritada gösterilecek sepeti seçer (Katalogdan tıklanınca)
   void selectBasket(BasketModel? basket) {
     _selectedBasket = basket;
-    notifyListeners();
+    _safeNotify();
   }
 
   /// Bir sepeti siler
@@ -183,11 +221,40 @@ class MapViewModel extends ChangeNotifier {
       _activeBasket = null;
     }
     await loadBaskets();
-    notifyListeners();
+    _safeNotify();
+  }
+
+  // --- AppLifecycleObserver ---
+  // Uygulama arka plana geçtiğinde GPS stream'ini kapatmıyoruz:
+  // Eğer aktif bir sepet kaydı varsa konumu yitirmemek için stream açık kalır.
+  // Ön plana dönünce UI zaten stream'den güncellenir.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      // Uygulama ön plana geldi: eğer izin verilmiş ama tracking durmuşsa yeniden başlat
+      if (_isPermissionGranted && !_isTracking) {
+        startLocationTracking();
+      }
+    } else if (state == AppLifecycleState.paused) {
+      // Aktif kayıt YOKSA pil tasarrufu için GPS'i durdur
+      if (_activeBasket == null && _isTracking) {
+        stopLocationTracking();
+      }
+      // Aktif kayıt VARSA durdurmuyoruz — kayıt devam etmeli
+    }
+  }
+
+  /// notifyListeners() güvenli sürümü — dispose sonrası çağrılmaz
+  void _safeNotify() {
+    if (!_isDisposed) {
+      notifyListeners();
+    }
   }
 
   @override
   void dispose() {
+    _isDisposed = true;
+    WidgetsBinding.instance.removeObserver(this);
     _locationSubscription?.cancel();
     _locationService.dispose();
     super.dispose();

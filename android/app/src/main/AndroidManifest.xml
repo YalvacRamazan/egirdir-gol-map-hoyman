@@ -31,9 +31,13 @@
             android:name="flutterEmbedding"
             android:value="2" />
     </application>
+
+    <!-- Konum izinleri: Kaba ve hassas konum için her ikisi de gereklidir -->
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- Not: ACCESS_BACKGROUND_LOCATION eklenmedi.
+         Uygulama arka planda GPS takibi yapmaz; konum yalnızca uygulama ön plandayken alınır. -->
+
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and
          https://developer.android.com/reference/android/content/Intent#ACTION_PROCESS_TEXT.

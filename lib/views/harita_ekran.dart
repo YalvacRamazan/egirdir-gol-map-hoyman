@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:map/models/basket_model.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
@@ -9,6 +9,9 @@ import 'package:map/services/tile_cache_service.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 import 'package:map/views/ayarlar_ekran.dart';
 import 'package:map/views/katalog_sayfasi.dart';
+
+/// Hoyman Gölü merkezi — uygulama açılışında gösterilecek varsayılan konum
+const LatLng _kHoymanGoluMerkezi = LatLng(38.10, 30.98);
 
 class HaritaEkran extends StatefulWidget {
   const HaritaEkran({super.key});
@@ -22,14 +25,36 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
 
+  /// Harita yalnızca bir kez otomatik kullanıcı konumuna taşınır
+  bool _hasMovedToPosition = false;
+
   @override
   void initState() {
     super.initState();
-    _viewModel.init();
+    _viewModel.addListener(_onViewModelChanged);
+    _viewModel.init().then((_) {
+      // init() tamamlandıktan sonra "devam eden kayıt" kontrolü yap
+      if (mounted && _viewModel.activeBasket != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _showResumeRecordingDialog();
+        });
+      }
+    });
+  }
+
+  /// ViewModel değiştiğinde haritayı ilk konuma yönlendir (yalnızca bir kez)
+  void _onViewModelChanged() {
+    if (!_hasMovedToPosition && _viewModel.hasInitialPosition &&
+        _viewModel.currentPosition != null) {
+      _hasMovedToPosition = true;
+      final pos = _viewModel.currentPosition!;
+      _mapController.move(LatLng(pos.latitude, pos.longitude), 15.0);
+    }
   }
 
   @override
   void dispose() {
+    _viewModel.removeListener(_onViewModelChanged);
     _viewModel.dispose();
     _mapController.dispose();
     super.dispose();
@@ -46,9 +71,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
       listenable: _viewModel,
       builder: (context, _) {
         final currentPos = _viewModel.currentPosition;
-        final userLatLng = currentPos != null 
-            ? LatLng(currentPos.latitude, currentPos.longitude) 
-            : const LatLng(38.25, 30.90); // Eğirdir Gölü varsayılan merkez
+        final userLatLng = currentPos != null
+            ? LatLng(currentPos.latitude, currentPos.longitude)
+            : _kHoymanGoluMerkezi;
 
         // Haritada gösterilecek aktif veya seçili sepet
         final showBasket = _viewModel.selectedBasket ?? _viewModel.activeBasket;
@@ -60,7 +85,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
               FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: userLatLng,
+                  initialCenter: _kHoymanGoluMerkezi,
                   initialZoom: 12.0,
                   maxZoom: 18.0,
                   minZoom: 6.0,
@@ -68,11 +93,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 children: [
                   // Harita Altlığı (Tile Layer) - Çevrimdışı Önbellek Desteği ile
                   TileLayer(
-                    urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                    urlTemplate:
+                        'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.rumata.gol_sepet_takip',
                     tileProvider: _settingsService.settings.enableTileCaching &&
                             TileCacheService().cacheDirectory != null
-                        ? CachedTileProvider(cacheDir: TileCacheService().cacheDirectory!)
+                        ? CachedTileProvider(
+                            cacheDir: TileCacheService().cacheDirectory!)
                         : NetworkTileProvider(),
                   ),
 
@@ -85,24 +112,28 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           radius: currentPos.accuracy, // Metre cinsinden doğruluk yarıçapı
                           useRadiusInMeter: true,
                           color: _viewModel.isGpsAccuracyGood
-                              ? Colors.blue.withOpacity(0.15)
-                              : Colors.red.withOpacity(0.15),
+                              ? Colors.blue.withValues(alpha: 0.15)
+                              : Colors.red.withValues(alpha: 0.15),
                           borderColor: _viewModel.isGpsAccuracyGood
-                              ? Colors.blue.withOpacity(0.5)
-                              : Colors.red.withOpacity(0.5),
+                              ? Colors.blue.withValues(alpha: 0.5)
+                              : Colors.red.withValues(alpha: 0.5),
                           borderStrokeWidth: 1.5,
                         ),
                       ],
                     ),
 
                   // Sepet Çizgisi (A -> B Arasındaki Çizgi)
-                  if (showBasket != null && showBasket.endLatitude != null && showBasket.endLongitude != null)
+                  if (showBasket != null &&
+                      showBasket.endLatitude != null &&
+                      showBasket.endLongitude != null)
                     PolylineLayer(
                       polylines: [
                         Polyline(
                           points: [
-                            LatLng(showBasket.startLatitude, showBasket.startLongitude),
-                            LatLng(showBasket.endLatitude!, showBasket.endLongitude!),
+                            LatLng(showBasket.startLatitude,
+                                showBasket.startLongitude),
+                            LatLng(showBasket.endLatitude!,
+                                showBasket.endLongitude!),
                           ],
                           strokeWidth: 4.0,
                           color: Colors.blue.shade900,
@@ -123,7 +154,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                             decoration: BoxDecoration(
                               color: Colors.blue.shade600,
                               shape: BoxShape.circle,
-                              border: Border.all(color: Colors.white, width: 2),
+                              border:
+                                  Border.all(color: Colors.white, width: 2),
                               boxShadow: const [
                                 BoxShadow(
                                   color: Colors.black26,
@@ -138,7 +170,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       // Sepet Başlangıç (A) Noktası
                       if (showBasket != null)
                         Marker(
-                          point: LatLng(showBasket.startLatitude, showBasket.startLongitude),
+                          point: LatLng(showBasket.startLatitude,
+                              showBasket.startLongitude),
                           width: 40,
                           height: 40,
                           child: const Icon(
@@ -149,9 +182,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
                         ),
 
                       // Sepet Bitiş (B) Noktası
-                      if (showBasket != null && showBasket.endLatitude != null && showBasket.endLongitude != null)
+                      if (showBasket != null &&
+                          showBasket.endLatitude != null &&
+                          showBasket.endLongitude != null)
                         Marker(
-                          point: LatLng(showBasket.endLatitude!, showBasket.endLongitude!),
+                          point: LatLng(showBasket.endLatitude!,
+                              showBasket.endLongitude!),
                           width: 40,
                           height: 40,
                           child: const Icon(
@@ -176,21 +212,27 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     Expanded(
                       child: Card(
                         elevation: 4,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+                        shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30)),
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
                           child: Row(
                             children: [
                               Icon(
                                 Icons.gps_fixed,
-                                color: _viewModel.isGpsAccuracyGood ? Colors.green : Colors.orange,
+                                color: _viewModel.isGpsAccuracyGood
+                                    ? Colors.green
+                                    : Colors.orange,
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   _viewModel.gpsStatusText,
-                                  style: const TextStyle(fontSize: 12, fontWeight: FontWeight.bold),
+                                  style: const TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold),
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
@@ -203,7 +245,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     // GPS Boost Düğmesi (J7 Prime için hassas mod)
                     _buildRoundButton(
                       icon: Icons.flash_on,
-                      color: _viewModel.isBoostMode ? Colors.amber.shade700 : Colors.grey.shade700,
+                      color: _viewModel.isBoostMode
+                          ? Colors.amber.shade700
+                          : Colors.grey.shade700,
                       iconColor: Colors.white,
                       tooltip: 'GPS Boost (Hassas Mod)',
                       onPressed: () {
@@ -211,8 +255,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
                             content: Text(
-                              _viewModel.isBoostMode 
-                                  ? 'Boost Modu Aktif (Yüksek Doğruluk, Yüksek Pil Tüketimi)' 
+                              _viewModel.isBoostMode
+                                  ? 'Boost Modu Aktif (Yüksek Doğruluk, Yüksek Pil Tüketimi)'
                                   : 'Dengeli Mod Aktif (Pil Tasarrufu)',
                             ),
                             duration: const Duration(seconds: 2),
@@ -233,7 +277,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           MaterialPageRoute(
                             builder: (context) => KatalogSayfasi(
                               viewModel: _viewModel,
-                              backupPhoneNumber: _settingsService.settings.backupPhoneNumber,
+                              backupPhoneNumber:
+                                  _settingsService.settings.backupPhoneNumber,
                             ),
                           ),
                         );
@@ -250,7 +295,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                         Navigator.push(
                           context,
                           MaterialPageRoute(
-                            builder: (context) => AyarlarEkran(viewModel: _viewModel),
+                            builder: (context) =>
+                                AyarlarEkran(viewModel: _viewModel),
                           ),
                         );
                       },
@@ -272,7 +318,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       _focusOnLocation(userLatLng, 15.0);
                     } else {
                       ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Konumunuz henüz alınamadı.')),
+                        const SnackBar(
+                            content: Text('Konumunuz henüz alınamadı.')),
                       );
                     }
                   },
@@ -280,17 +327,172 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
               ),
 
-              // --- 4. ALT KONTROL PANELERİ (Durumsal Alt Sayfalar) ---
+              // --- 4. ALT KONTROL PANELLERİ (Durumsal Alt Sayfalar) ---
               Positioned(
                 bottom: 0,
                 left: 0,
                 right: 0,
                 child: _buildBottomPanel(context, currentPos, userLatLng),
               ),
+
+              // --- 5. İZİN YOKSA BİLGİLENDİRME OVERLAY'İ ---
+              if (!_viewModel.isInitializing && !_viewModel.isPermissionGranted)
+                _buildPermissionOverlay(context),
+
+              // --- 6. BAŞLANGIÇ YÜKLEME OVERLAY'İ ---
+              if (_viewModel.isInitializing)
+                Container(
+                  color: Colors.black.withValues(alpha: 0.35),
+                  child: const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(height: 16),
+                        Text(
+                          'Harita ve konum başlatılıyor...',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
             ],
           ),
         );
       },
+    );
+  }
+
+  /// İzin reddedildiğinde harita üzerinde gösterilen bilgilendirme paneli
+  Widget _buildPermissionOverlay(BuildContext context) {
+    return Positioned(
+      bottom: 0,
+      left: 0,
+      right: 0,
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
+        decoration: BoxDecoration(
+          color: Colors.orange.shade800,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: const [
+            BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -3)),
+          ],
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Row(
+              children: [
+                const Icon(Icons.location_off, color: Colors.white, size: 28),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    _viewModel.permissionDeniedReason.isNotEmpty
+                        ? _viewModel.permissionDeniedReason
+                        : 'Konum izni gerekli. Harita özellikleri devre dışı.',
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 14),
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton.icon(
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: Colors.white,
+                      side: const BorderSide(color: Colors.white60),
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                    ),
+                    onPressed: () async {
+                      // İzni yeniden iste
+                      final result = await _viewModel.retryPermission();
+                      if (!result && context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(_viewModel.permissionDeniedReason),
+                          ),
+                        );
+                      }
+                    },
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Yeniden Dene'),
+                  ),
+                ),
+                if (_viewModel.isPermissionPermanentlyDenied) ...[
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton.icon(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.orange.shade800,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                      ),
+                      onPressed: () async {
+                        await Geolocator.openAppSettings();
+                      },
+                      icon: const Icon(Icons.settings),
+                      label: const Text('Ayarları Aç'),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  /// Uygulama yeniden açıldığında devam eden kayıt varsa kullanıcıya sor
+  void _showResumeRecordingDialog() {
+    if (!mounted) return;
+    final active = _viewModel.activeBasket;
+    if (active == null) return;
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => AlertDialog(
+        title: Row(
+          children: [
+            Icon(Icons.restore, color: Colors.green.shade700),
+            const SizedBox(width: 8),
+            const Text('Devam Eden Kayıt'),
+          ],
+        ),
+        content: Text(
+          '"${active.name}" sepeti için A noktası daha önce kaydedilmişti.\n\n'
+          'B noktasını şimdi kaydetmek ister misiniz?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _viewModel.cancelRecording();
+            },
+            child: const Text('İptal Et', style: TextStyle(color: Colors.red)),
+          ),
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.green.shade700,
+              foregroundColor: Colors.white,
+            ),
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Devam Et'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -326,13 +528,15 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  Widget _buildBottomPanel(BuildContext context, Position? currentPos, LatLng userLatLng) {
+  Widget _buildBottomPanel(
+      BuildContext context, Position? currentPos, LatLng userLatLng) {
     // 1. Durum: Aktif bir kayıt süreci var (A noktası alındı, B bekleniyor)
     if (_viewModel.activeBasket != null) {
       final active = _viewModel.activeBasket!;
       double distToStart = 0;
       if (currentPos != null) {
-        distToStart = active.distanceToStart(currentPos.latitude, currentPos.longitude);
+        distToStart =
+            active.distanceToStart(currentPos.latitude, currentPos.longitude);
       }
 
       return Container(
@@ -349,13 +553,15 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Expanded(
                   child: Text(
                     '${active.name} Kaydediliyor...',
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
               ],
             ),
             const SizedBox(height: 8),
-            Text('A Noktasına Uzaklığınız: ${distToStart.toStringAsFixed(1)} metre'),
+            Text(
+                'A Noktasına Uzaklığınız: ${distToStart.toStringAsFixed(1)} metre'),
             const SizedBox(height: 12),
             Row(
               children: [
@@ -382,7 +588,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: !_viewModel.isGpsAccuracyGood
-                        ? () => _showAccuracyWarning(context, () => _stopRecording(context))
+                        ? () => _showAccuracyWarning(
+                            context, () => _stopRecording(context))
                         : () => _stopRecording(context),
                     icon: const Icon(Icons.stop),
                     label: const Text('B Noktası (Bitir)'),
@@ -401,8 +608,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
       double? distToStart;
       double? distToEnd;
       if (currentPos != null) {
-        distToStart = selected.distanceToStart(currentPos.latitude, currentPos.longitude);
-        distToEnd = selected.distanceToEnd(currentPos.latitude, currentPos.longitude);
+        distToStart = selected.distanceToStart(
+            currentPos.latitude, currentPos.longitude);
+        distToEnd =
+            selected.distanceToEnd(currentPos.latitude, currentPos.longitude);
       }
 
       return Container(
@@ -419,7 +628,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Expanded(
                   child: Text(
                     selected.name,
-                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                    style: const TextStyle(
+                        fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                 ),
                 IconButton(
@@ -430,7 +640,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
             ),
             const SizedBox(height: 4),
             if (selected.isCompleted) ...[
-              Text('Sepet Uzunluğu: ${selected.distanceInMeters.toStringAsFixed(1)} metre'),
+              Text(
+                  'Sepet Uzunluğu: ${selected.distanceInMeters.toStringAsFixed(1)} metre'),
               if (distToStart != null && distToEnd != null) ...[
                 const SizedBox(height: 2),
                 Text('A Noktasına Uzaklığınız: ${distToStart.toStringAsFixed(1)} m'),
@@ -464,7 +675,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     onPressed: () {
                       ShareService().shareBasket(
                         selected,
-                        targetPhoneNumber: _settingsService.settings.backupPhoneNumber,
+                        targetPhoneNumber:
+                            _settingsService.settings.backupPhoneNumber,
                       );
                     },
                     icon: const Icon(Icons.share),
@@ -498,10 +710,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade700,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8)),
               ),
               onPressed: !_viewModel.isGpsAccuracyGood
-                  ? () => _showAccuracyWarning(context, () => _startRecordingDialog(context))
+                  ? () => _showAccuracyWarning(
+                      context, () => _startRecordingDialog(context))
                   : () => _startRecordingDialog(context),
               icon: const Icon(Icons.play_arrow),
               label: const Text(
@@ -555,12 +769,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
             child: const Text('Bekle / İptal'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.orange.shade800),
+            style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.orange.shade800),
             onPressed: () {
               Navigator.pop(context);
               onProceed();
             },
-            child: const Text('Yine de Devam Et', style: TextStyle(color: Colors.white)),
+            child: const Text('Yine de Devam Et',
+                style: TextStyle(color: Colors.white)),
           ),
         ],
       ),
@@ -590,18 +806,18 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
           ElevatedButton(
             onPressed: () async {
-              final name = nameController.text.trim().isEmpty 
-                  ? defaultName 
+              final name = nameController.text.trim().isEmpty
+                  ? defaultName
                   : nameController.text.trim();
-              
+
               Navigator.pop(context);
               final success = await _viewModel.startRecordingBasket(name);
-              if (success) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('$name başlangıç (A) noktası kaydedildi.')),
-                  );
-                }
+              if (success && context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                      content: Text(
+                          '$name başlangıç (A) noktası kaydedildi.')),
+                );
               }
             },
             child: const Text('Başlat'),
@@ -613,9 +829,11 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
   void _stopRecording(BuildContext context) async {
     final completed = await _viewModel.stopRecordingBasket();
-    if (completed != null && mounted) {
+    if (completed != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${completed.name} bitiş (B) noktası kaydedildi.')),
+        SnackBar(
+            content: Text(
+                '${completed.name} bitiş (B) noktası kaydedildi.')),
       );
 
       // Otomatik paylaşım teklifi / yönlendirmesi
@@ -623,7 +841,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Sepet Tamamlandı'),
-          content: Text('${completed.name} başarıyla kaydedildi.\n\nKonum bilgilerini şimdi WhatsApp grubuna göndermek ister misiniz?'),
+          content: Text(
+              '${completed.name} başarıyla kaydedildi.\n\nKonum bilgilerini şimdi WhatsApp grubuna göndermek ister misiniz?'),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
@@ -634,7 +853,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Navigator.pop(context);
                 ShareService().shareBasket(
                   completed,
-                  targetPhoneNumber: _settingsService.settings.backupPhoneNumber,
+                  targetPhoneNumber:
+                      _settingsService.settings.backupPhoneNumber,
                 );
               },
               child: const Text('WhatsApp Paylaş'),

@@ -12,6 +12,7 @@ class DatabaseService {
   
   // Web için geçici bellek içi depolama
   final List<BasketModel> _webBaskets = [];
+  int _webNextId = 1; // Güvenli ID üretici (uzunluğa bağlı değil)
 
   Future<Database?> get database async {
     if (kIsWeb) return null;
@@ -52,7 +53,7 @@ class DatabaseService {
   /// Yeni bir sepet ekler
   Future<int> insertBasket(BasketModel basket) async {
     if (kIsWeb) {
-      final id = _webBaskets.length + 1;
+      final id = _webNextId++;
       final newBasket = basket.copyWith(id: id);
       _webBaskets.add(newBasket);
       return id;

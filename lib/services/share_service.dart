@@ -27,7 +27,9 @@ class ShareService {
     }
 
     // Numarasız veya WhatsApp yüklü değilse genel paylaşım menüsünü aç
-    await Share.share(message, subject: '${basket.name} Konum Bilgisi');
+    await SharePlus.instance.share(
+      ShareParams(text: message, subject: '${basket.name} Konum Bilgisi'),
+    );
   }
 
   /// Tüm sepetlerin verilerini yedekleme amaçlı toplu paylaşır.
@@ -54,7 +56,9 @@ class ShareService {
       buffer.writeln("-----------------------------------");
     }
 
-    await Share.share(buffer.toString(), subject: 'Göl Sepet Takip Yedek');
+    await SharePlus.instance.share(
+      ShareParams(text: buffer.toString(), subject: 'Göl Sepet Takip Yedek'),
+    );
   }
 
   /// Tek sepet için paylaşım metnini oluşturur.

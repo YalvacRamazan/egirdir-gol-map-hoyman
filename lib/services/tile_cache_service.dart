@@ -39,6 +39,13 @@ class CachedTileProvider extends TileProvider {
   }
 
   @override
+  void dispose() {
+    // HttpClient'ı serbest bırak; aksi hâlde bağlantı havuzu sızar
+    _httpClient.close(force: false);
+    super.dispose();
+  }
+
+  @override
   ImageProvider getImage(TileCoordinates coordinates, TileLayer options) {
     final url = getTileUrl(coordinates, options);
     
