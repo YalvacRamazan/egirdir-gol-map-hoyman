@@ -5,7 +5,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:map/models/basket_model.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
-import 'package:map/services/tile_cache_service.dart';
+import 'package:map/services/sqlite_tile_provider.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 import 'package:map/views/ayarlar_ekran.dart';
 import 'package:map/views/katalog_sayfasi.dart';
@@ -91,16 +91,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   minZoom: 6.0,
                 ),
                 children: [
-                  // Harita Altlığı (Tile Layer) - Çevrimdışı Önbellek Desteği ile
+                  // Harita Altlığı (Tile Layer) - SQLite Önbellek Desteği ile
+                  // Görüntülenen tile'lar otomatik indirilip SQLite'a kaydedilir.
+                  // Bir sonraki açılışta (offline dahil) doğrudan SQLite'tan okunur.
                   TileLayer(
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.rumata.gol_sepet_takip',
-                    tileProvider: _settingsService.settings.enableTileCaching &&
-                            TileCacheService().cacheDirectory != null
-                        ? CachedTileProvider(
-                            cacheDir: TileCacheService().cacheDirectory!)
-                        : NetworkTileProvider(),
+                    tileProvider: SqliteTileProvider(),
                   ),
 
                   // GPS Doğruluk Çemberi (Sadece GPS aktifse çizilir)

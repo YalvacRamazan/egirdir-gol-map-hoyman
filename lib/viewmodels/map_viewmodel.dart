@@ -4,6 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:map/models/basket_model.dart';
 import 'package:map/services/database_service.dart';
 import 'package:map/services/location_service.dart';
+import 'package:map/services/sqlite_tile_cache_service.dart';
 
 class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   final DatabaseService _dbService = DatabaseService();
@@ -47,6 +48,9 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   /// İlk kurulum ve verileri yükleme
   Future<void> init() async {
     WidgetsBinding.instance.addObserver(this);
+
+    // SQLite harita önbelleğini başlat
+    await SqliteTileCacheService().init();
 
     await loadBaskets();
 

@@ -7,25 +7,21 @@ import 'package:path/path.dart' as p;
 class AppSettings {
   String backupPhoneNumber;
   double gpsAccuracyThreshold;
-  bool enableTileCaching;
 
   AppSettings({
     this.backupPhoneNumber = '',
     this.gpsAccuracyThreshold = 15.0,
-    this.enableTileCaching = true,
   });
 
   Map<String, dynamic> toJson() => {
         'backupPhoneNumber': backupPhoneNumber,
         'gpsAccuracyThreshold': gpsAccuracyThreshold,
-        'enableTileCaching': enableTileCaching,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
       backupPhoneNumber: json['backupPhoneNumber'] as String? ?? '',
       gpsAccuracyThreshold: (json['gpsAccuracyThreshold'] as num?)?.toDouble() ?? 15.0,
-      enableTileCaching: json['enableTileCaching'] as bool? ?? true,
     );
   }
 }

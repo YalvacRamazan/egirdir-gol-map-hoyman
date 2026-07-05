@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:map/services/settings_service.dart';
-import 'package:map/services/tile_cache_service.dart';
 import 'package:map/views/harita_ekran.dart';
 
 void main() async {
@@ -10,8 +9,7 @@ void main() async {
   // Yerel Ayarlar Servisi başlatma
   await SettingsService().init();
 
-  // Çevrimdışı Harita Önbellek Servisi başlatma
-  await TileCacheService().init();
+  // Not: SQLite harita önbelleği MapViewModel.init() içinde başlatılır.
 
   runApp(const KonumTakipApp());
 }

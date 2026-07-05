@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
+import 'package:map/services/sqlite_tile_cache_service.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 
 class AyarlarEkran extends StatefulWidget {
@@ -16,14 +17,19 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
   final _settingsService = SettingsService();
   final _phoneController = TextEditingController();
   double _accuracyThreshold = 15.0;
-  bool _enableTileCaching = true;
+  CacheStats? _cacheStats;
 
   @override
   void initState() {
     super.initState();
     _phoneController.text = _settingsService.settings.backupPhoneNumber;
     _accuracyThreshold = _settingsService.settings.gpsAccuracyThreshold;
-    _enableTileCaching = _settingsService.settings.enableTileCaching;
+    _loadCacheStats();
+  }
+
+  Future<void> _loadCacheStats() async {
+    final stats = await SqliteTileCacheService().getStats();
+    if (mounted) setState(() => _cacheStats = stats);
   }
 
   @override
@@ -36,7 +42,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     final updatedSettings = AppSettings(
       backupPhoneNumber: _phoneController.text.trim(),
       gpsAccuracyThreshold: _accuracyThreshold,
-      enableTileCaching: _enableTileCaching,
     );
 
     await _settingsService.saveSettings(updatedSettings);
@@ -140,16 +145,77 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                       },
                     ),
                     const Divider(height: 20),
-                    SwitchListTile(
-                      title: const Text('Haritayı Önbelleğe Al (Çevrimdışı Desteği)'),
-                      subtitle: const Text('Görüntülenen harita alanlarını çevrimdışı kullanım için kaydeder.'),
-                      value: _enableTileCaching,
-                      contentPadding: EdgeInsets.zero,
-                      onChanged: (value) {
-                        setState(() {
-                          _enableTileCaching = value;
-                        });
-                      },
+                    // --- HARİTA ÖNBELLEĞİ BİLGİ KARTI ---
+                    Row(
+                      children: [
+                        const Icon(Icons.map_outlined, size: 20, color: Colors.blueGrey),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Harita Önbelleği',
+                                style: TextStyle(fontWeight: FontWeight.w600),
+                              ),
+                              Text(
+                                _cacheStats == null
+                                    ? 'Yükleniyor...'
+                                    : '${_cacheStats!.tileCount} tile · ${_cacheStats!.formattedSize}',
+                                style: TextStyle(
+                                    fontSize: 12, color: Colors.grey.shade600),
+                              ),
+                              Text(
+                                'Gezilen harita alanları otomatik kaydedilir.',
+                                style: TextStyle(
+                                    fontSize: 11, color: Colors.grey.shade500),
+                              ),
+                            ],
+                          ),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                              foregroundColor: Colors.red.shade700),
+                          onPressed: _cacheStats == null || _cacheStats!.tileCount == 0
+                              ? null
+                              : () async {
+                                  final messenger = ScaffoldMessenger.of(context);
+                                  final confirm = await showDialog<bool>(
+                                    context: context,
+                                    builder: (ctx) => AlertDialog(
+                                      title: const Text('Önbelleği Temizle'),
+                                      content: Text(
+                                        '${_cacheStats!.tileCount} tile (${_cacheStats!.formattedSize}) silinecek. Devam?',
+                                      ),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () => Navigator.pop(ctx, false),
+                                          child: const Text('İptal'),
+                                        ),
+                                        ElevatedButton(
+                                          style: ElevatedButton.styleFrom(
+                                              backgroundColor: Colors.red.shade700,
+                                              foregroundColor: Colors.white),
+                                          onPressed: () => Navigator.pop(ctx, true),
+                                          child: const Text('Temizle'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (confirm == true) {
+                                    await SqliteTileCacheService().clearAll();
+                                    await _loadCacheStats();
+                                    if (!mounted) return;
+                                    messenger.showSnackBar(
+                                      const SnackBar(
+                                          content: Text('Harita önbelleği temizlendi.')),
+                                    );
+                                  }
+                                },
+                          icon: const Icon(Icons.delete_outline, size: 18),
+                          label: const Text('Temizle'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
