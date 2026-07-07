@@ -34,7 +34,10 @@ class KatalogSayfasi extends StatelessWidget {
           ),
         ],
       ),
-      body: viewModel.baskets.isEmpty
+      body: ListenableBuilder(
+        listenable: viewModel,
+        builder: (context, _) {
+          return viewModel.baskets.isEmpty
           ? const Center(
               child: Text(
                 'Henüz kayıtlı sepet bulunmuyor.\nHarita üzerinden yeni sepet ekleyebilirsiniz.',
@@ -130,7 +133,9 @@ class KatalogSayfasi extends StatelessWidget {
                   ),
                 );
               },
-            ),
+            );
+        },
+      ),
     );
   }
 

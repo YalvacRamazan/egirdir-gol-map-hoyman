@@ -60,6 +60,15 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
       _activeBasket = activeList.first;
     }
 
+    // Aktif kayıt yoksa en son tamamlanmış sepeti otomatik seç
+    // → Uygulama açılır açılmaz mesafe bilgisi görünsün
+    if (_activeBasket == null && _baskets.isNotEmpty) {
+      final lastCompleted = _baskets.where((b) => b.isCompleted).toList();
+      if (lastCompleted.isNotEmpty) {
+        _selectedBasket = lastCompleted.first;
+      }
+    }
+
     // İzinleri kontrol et ve konumu başlat
     final permResult = await _locationService.checkAndRequestPermissionDetailed();
     _isPermissionGranted = permResult.granted;

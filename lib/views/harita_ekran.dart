@@ -496,7 +496,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
   double _getBottomOffset(BasketModel? showBasket) {
     if (showBasket == null) return 100.0;
-    return 210.0;
+    return 260.0;
   }
 
   Widget _buildRoundButton({
@@ -605,11 +605,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
       final selected = _viewModel.selectedBasket!;
       double? distToStart;
       double? distToEnd;
+      double? distToLine;
       if (currentPos != null) {
         distToStart = selected.distanceToStart(
             currentPos.latitude, currentPos.longitude);
         distToEnd =
             selected.distanceToEnd(currentPos.latitude, currentPos.longitude);
+        distToLine =
+            selected.distanceToLine(currentPos.latitude, currentPos.longitude);
       }
 
       return Container(
@@ -640,10 +643,105 @@ class _HaritaEkranState extends State<HaritaEkran> {
             if (selected.isCompleted) ...[
               Text(
                   'Sepet Uzunluğu: ${selected.distanceInMeters.toStringAsFixed(1)} metre'),
+              if (distToLine != null) ...[
+                const SizedBox(height: 4),
+                Text(
+                  'Sepete Uzaklığınız: ${distToLine.toStringAsFixed(1)} m',
+                  style: TextStyle(
+                    fontSize: 15,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.blue.shade800,
+                  ),
+                ),
+              ],
               if (distToStart != null && distToEnd != null) ...[
-                const SizedBox(height: 2),
-                Text('A Noktasına Uzaklığınız: ${distToStart.toStringAsFixed(1)} m'),
-                Text('B Noktasına Uzaklığınız: ${distToEnd.toStringAsFixed(1)} m'),
+                const SizedBox(height: 8),
+                // Anlık mesafe kartları — her konum güncellemesinde otomatik yenilenir
+                Row(
+                  children: [
+                    // A Noktasına Anlık Mesafe
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.green.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.green.shade300),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.circle, color: Colors.green.shade600, size: 8),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'A Noktası',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.green.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${distToStart.toStringAsFixed(1)} m',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.green.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 10),
+                    // B Noktasına Anlık Mesafe
+                    Expanded(
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.shade50,
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(color: Colors.red.shade300),
+                        ),
+                        child: Column(
+                          children: [
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.circle, color: Colors.red.shade600, size: 8),
+                                const SizedBox(width: 4),
+                                Text(
+                                  'B Noktası',
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                    color: Colors.red.shade800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              '${distToEnd!.toStringAsFixed(1)} m',
+                              style: TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.red.shade900,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ] else
               const Text('Sepet tamamlanmamış durumda (B noktası eksik).'),

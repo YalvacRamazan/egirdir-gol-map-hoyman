@@ -46,13 +46,64 @@ class BasketModel {
   }
 
   /// Haversine formülü ile iki nokta arasındaki mesafeyi (metre) hesaplar.
-  double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const p = 0.017453292519943295; // PI / 180
-    final c = cos;
-    final a = 0.5 - c((lat2 - lat1) * p)/2 + 
-          c(lat1 * p) * c(lat2 * p) * 
-          (1 - c((lon2 - lon1) * p))/2;
-    return 12742000 * asin(sqrt(a)); // 2 * R * 1000 (R = 6371 km)
+  /// Standart formül — CODES.md ile uyumlu (R = 6371000 m).
+  static double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
+    const double R = 6371000.0; // Dünya yarıçapı (metre)
+    final dLat = _toRadians(lat2 - lat1);
+    final dLon = _toRadians(lon2 - lon1);
+    final a = sin(dLat / 2) * sin(dLat / 2) +
+        cos(_toRadians(lat1)) * cos(_toRadians(lat2)) *
+        sin(dLon / 2) * sin(dLon / 2);
+    final c = 2 * atan2(sqrt(a), sqrt(1 - a));
+    return R * c;
+  }
+
+  static double _toRadians(double degrees) => degrees * pi / 180.0;
+
+  /// Kullanıcının (C) sepet ipi (A→B) üzerindeki en yakın noktaya olan mesafesini
+  /// metre cinsinden döner. CODES.md'deki canliMesafeHesapla algoritması.
+  ///
+  /// Vektör izdüşümü ile A-B doğrusu üzerindeki en yakın P noktasını bulur,
+  /// ardından C-P arası Haversine mesafesini hesaplar.
+  /// Sepet tamamlanmamışsa null döner.
+  double? distanceToLine(double cLat, double cLon) {
+    if (endLatitude == null || endLongitude == null) return null;
+
+    final projection = projectionPoint(cLat, cLon);
+    if (projection == null) return null;
+
+    return _calculateDistance(cLat, cLon, projection.$1, projection.$2);
+  }
+
+  /// Kullanıcının (C) konumunun sepet ipi (A→B) üzerindeki izdüşüm noktasını (P)
+  /// döner. Sonuç (lat, lon) tuple'ıdır. Sepet tamamlanmamışsa null döner.
+  (double lat, double lon)? projectionPoint(double cLat, double cLon) {
+    if (endLatitude == null || endLongitude == null) return null;
+
+    // Düzlem dönüşümü ile vektörler (CODES.md algoritması)
+    final double xA = startLongitude, yA = startLatitude;
+    final double xB = endLongitude!, yB = endLatitude!;
+    final double xC = cLon, yC = cLat;
+
+    final double abX = xB - xA;
+    final double abY = yB - yA;
+    final double acX = xC - xA;
+    final double acY = yC - yA;
+
+    // Nokta çarpımı ve AB vektörünün uzunluğunun karesi
+    final double dotProduct = acX * abX + acY * abY;
+    final double abLenSq = abX * abX + abY * abY;
+
+    // İzdüşüm oranı (t) — clamping [0, 1]
+    double t = (abLenSq != 0.0) ? dotProduct / abLenSq : 0.0;
+    if (t < 0.0) t = 0.0;
+    if (t > 1.0) t = 1.0;
+
+    // İp üzerindeki en yakın P noktası
+    final double pLat = yA + t * abY;
+    final double pLon = xA + t * abX;
+
+    return (pLat, pLon);
   }
 
   /// Veritabanına kaydetmek için Map nesnesine dönüştürür.
