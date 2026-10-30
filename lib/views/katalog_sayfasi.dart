@@ -38,13 +38,7 @@ class KatalogSayfasi extends StatelessWidget {
         listenable: viewModel,
         builder: (context, _) {
           return viewModel.baskets.isEmpty
-          ? const Center(
-              child: Text(
-                'Henüz kayıtlı sepet bulunmuyor.\nHarita üzerinden yeni sepet ekleyebilirsiniz.',
-                textAlign: TextAlign.center,
-                style: TextStyle(color: Colors.grey, fontSize: 16),
-              ),
-            )
+          ? _buildEmptyState(context)
           : ListView.builder(
               itemCount: viewModel.baskets.length,
               padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 12),
@@ -58,7 +52,7 @@ class KatalogSayfasi extends StatelessWidget {
                   shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(12),
                     side: isSelected
-                        ? BorderSide(color: Theme.of(context).primaryColor, width: 2)
+                        ? BorderSide(color: Theme.of(context).colorScheme.primary, width: 2)
                         : BorderSide.none,
                   ),
                   child: ListTile(
@@ -139,17 +133,58 @@ class KatalogSayfasi extends StatelessWidget {
     );
   }
 
+  /// Kayıtlı sepet yokken gösterilen boş durum: nedeni ve sonraki adımı söyler.
+  Widget _buildEmptyState(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.inventory_2_outlined, size: 48, color: scheme.onSurfaceVariant),
+            const SizedBox(height: 16),
+            Text(
+              'Henüz kayıtlı sepet bulunmuyor.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: scheme.onSurface,
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              'Harita üzerinde A noktasında kaydı başlatıp B noktasında bitirerek yeni sepet ekleyebilirsiniz.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: scheme.onSurfaceVariant, fontSize: 14),
+            ),
+            const SizedBox(height: 20),
+            ElevatedButton.icon(
+              onPressed: () => Navigator.pop(context),
+              icon: const Icon(Icons.map),
+              label: const Text('Haritaya Dön'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildStatusBadge(BasketModel basket) {
+    // Koyu zemin + beyaz metin: her iki temada da WCAG AA kontrastını geçer.
+    final background =
+        basket.isCompleted ? Colors.green.shade800 : Colors.deepOrange.shade900;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
-        color: basket.isCompleted ? Colors.green.shade100 : Colors.orange.shade100,
+        color: background,
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         basket.isCompleted ? 'Tamamlandı' : 'Açık (Yarım)',
-        style: TextStyle(
-          color: basket.isCompleted ? Colors.green.shade800 : Colors.orange.shade800,
+        style: const TextStyle(
+          color: Colors.white,
           fontSize: 11,
           fontWeight: FontWeight.bold,
         ),
@@ -163,6 +198,7 @@ class KatalogSayfasi extends StatelessWidget {
   }
 
   void _confirmDelete(BuildContext context, BasketModel basket) {
+    final scheme = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -174,14 +210,17 @@ class KatalogSayfasi extends StatelessWidget {
             child: const Text('İptal'),
           ),
           ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: scheme.error,
+              foregroundColor: scheme.onError,
+            ),
             onPressed: () {
               if (basket.id != null) {
                 viewModel.deleteBasket(basket.id!);
               }
               Navigator.pop(context);
             },
-            child: const Text('Sil', style: TextStyle(color: Colors.white)),
+            child: const Text('Sil'),
           ),
         ],
       ),

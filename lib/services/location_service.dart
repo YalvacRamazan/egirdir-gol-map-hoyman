@@ -110,7 +110,7 @@ class LocationService {
   }
 
   /// Ayarları Boost veya Normal moduna göre belirler.
-  /// Not: timeLimit kullanılmıyor — aksi takdirde stream sürekli kapanıp yeniden açılır.
+  /// Not: timeLimit kullanılmıyor, aksi takdirde stream sürekli kapanıp yeniden açılır.
   LocationSettings _getSettings() {
     if (_isBoostMode) {
       // J7 Prime için maksimum hassasiyet, sürekli güncelleme (Güç tüketimi yüksektir)

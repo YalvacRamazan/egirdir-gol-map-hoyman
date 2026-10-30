@@ -22,6 +22,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   bool _isDisposed = false; // dispose() sonrası notifyListeners() hatasını önler
   String _gpsStatusText = 'GPS Başlatılmadı';
   bool _isGpsAccuracyGood = false;
+  bool _isGpsError = false; // Konum akışında hata oluştu mu?
 
   // İzin reddedilince kullanıcıya mesaj / ayarlara yönlendirme
   String _permissionDeniedReason = '';
@@ -41,6 +42,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   bool get hasInitialPosition => _hasInitialPosition;
   String get gpsStatusText => _gpsStatusText;
   bool get isGpsAccuracyGood => _isGpsAccuracyGood;
+  bool get isGpsError => _isGpsError;
   double get accuracyThreshold => _locationService.accuracyThreshold;
   String get permissionDeniedReason => _permissionDeniedReason;
   bool get isPermissionPermanentlyDenied => _isPermissionPermanentlyDenied;
@@ -111,6 +113,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   /// Konum takibini başlatır
   void startLocationTracking() {
     _isTracking = true;
+    _isGpsError = false;
     _locationService.startTracking(boostMode: _locationService.isBoostMode);
 
     _locationSubscription?.cancel();
@@ -124,6 +127,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
         }
 
         _isGpsAccuracyGood = _locationService.isAccuracyAcceptable(position);
+        _isGpsError = false;
         _gpsStatusText =
             'GPS Aktif (Hassasiyet: ${position.accuracy.toStringAsFixed(1)}m)';
         _safeNotify();
@@ -131,6 +135,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
       onError: (error) {
         _gpsStatusText = 'GPS Hatası: $error';
         _isGpsAccuracyGood = false;
+        _isGpsError = true;
         _safeNotify();
       },
     );
@@ -253,11 +258,11 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
       if (_activeBasket == null && _isTracking) {
         stopLocationTracking();
       }
-      // Aktif kayıt VARSA durdurmuyoruz — kayıt devam etmeli
+      // Aktif kayıt VARSA durdurmuyoruz: kayıt devam etmeli
     }
   }
 
-  /// notifyListeners() güvenli sürümü — dispose sonrası çağrılmaz
+  /// notifyListeners() güvenli sürümü: dispose sonrası çağrılmaz
   void _safeNotify() {
     if (!_isDisposed) {
       notifyListeners();

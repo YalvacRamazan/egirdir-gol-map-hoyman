@@ -17,25 +17,41 @@ void main() async {
 class KonumTakipApp extends StatelessWidget {
   const KonumTakipApp({super.key});
 
+  /// Marka rengi: göl mavisi (blue.shade800). DESIGN.md ile belgelenmiştir.
+  static const Color _seedColor = Color(0xFF1565C0);
+
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      debugShowCheckedModeBanner: false,
-      title: 'Göl Sepet Takip',
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(
-          seedColor: Colors.blue.shade800,
-          brightness: Brightness.light,
-        ),
-        useMaterial3: true,
-        appBarTheme: AppBarTheme(
-          backgroundColor: Colors.blue.shade800,
-          foregroundColor: Colors.white,
-          elevation: 2,
-          centerTitle: true,
-        ),
+    final settingsService = SettingsService();
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: settingsService.themeModeNotifier,
+      builder: (context, themeMode, _) {
+        return MaterialApp(
+          debugShowCheckedModeBanner: false,
+          title: 'Göl Sepet Takip',
+          theme: _buildTheme(Brightness.light),
+          darkTheme: _buildTheme(Brightness.dark),
+          themeMode: themeMode,
+          home: const HaritaEkran(),
+        );
+      },
+    );
+  }
+
+  ThemeData _buildTheme(Brightness brightness) {
+    final scheme = ColorScheme.fromSeed(
+      seedColor: _seedColor,
+      brightness: brightness,
+    );
+    return ThemeData(
+      colorScheme: scheme,
+      useMaterial3: true,
+      appBarTheme: AppBarTheme(
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        elevation: 2,
+        centerTitle: true,
       ),
-      home: const HaritaEkran(),
     );
   }
 }

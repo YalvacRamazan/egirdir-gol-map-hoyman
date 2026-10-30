@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
-import 'package:map/models/basket_model.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
 import 'package:map/services/sqlite_tile_provider.dart';
@@ -10,7 +9,7 @@ import 'package:map/viewmodels/map_viewmodel.dart';
 import 'package:map/views/ayarlar_ekran.dart';
 import 'package:map/views/katalog_sayfasi.dart';
 
-/// Hoyman Gölü merkezi — uygulama açılışında gösterilecek varsayılan konum
+/// Hoyman Gölü merkezi: uygulama açılışında gösterilecek varsayılan konum
 const LatLng _kHoymanGoluMerkezi = LatLng(38.10, 30.98);
 
 class HaritaEkran extends StatefulWidget {
@@ -24,6 +23,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapViewModel _viewModel = MapViewModel();
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
+
+  /// Alt panelin gerçek yüksekliğini ölçmek için (FAB çakışmasını önler)
+  final GlobalKey _bottomPanelKey = GlobalKey();
+  double _bottomPanelHeight = 0;
 
   /// Harita yalnızca bir kez otomatik kullanıcı konumuna taşınır
   bool _hasMovedToPosition = false;
@@ -65,6 +68,21 @@ class _HaritaEkranState extends State<HaritaEkran> {
     _mapController.move(point, zoom);
   }
 
+  /// Açık/koyu temaya göre uygun rengi seçer.
+  Color _adaptiveColor(BuildContext context, Color light, Color dark) {
+    return Theme.of(context).brightness == Brightness.dark ? dark : light;
+  }
+
+  /// Alt panelin yüksekliğini ölçer ve FAB konumunu günceller.
+  void _measureBottomPanel() {
+    final ctx = _bottomPanelKey.currentContext;
+    if (ctx == null) return;
+    final h = ctx.size?.height ?? 0;
+    if (h != _bottomPanelHeight && mounted) {
+      setState(() => _bottomPanelHeight = h);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -77,6 +95,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
         // Haritada gösterilecek aktif veya seçili sepet
         final showBasket = _viewModel.selectedBasket ?? _viewModel.activeBasket;
+
+        // Panel yüksekliği değiştiyse bir sonraki karede yeniden ölç
+        WidgetsBinding.instance.addPostFrameCallback((_) => _measureBottomPanel());
 
         return Scaffold(
           body: Stack(
@@ -148,19 +169,22 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           point: userLatLng,
                           width: 20,
                           height: 20,
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade600,
-                              shape: BoxShape.circle,
-                              border:
-                                  Border.all(color: Colors.white, width: 2),
-                              boxShadow: const [
-                                BoxShadow(
-                                  color: Colors.black26,
-                                  blurRadius: 4,
-                                  offset: Offset(0, 2),
-                                )
-                              ],
+                          child: Semantics(
+                            label: 'Kullanıcı konumu',
+                            child: Container(
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade600,
+                                shape: BoxShape.circle,
+                                border:
+                                    Border.all(color: Colors.white, width: 2),
+                                boxShadow: const [
+                                  BoxShadow(
+                                    color: Colors.black26,
+                                    blurRadius: 4,
+                                    offset: Offset(0, 2),
+                                  )
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -172,10 +196,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
                               showBasket.startLongitude),
                           width: 40,
                           height: 40,
-                          child: const Icon(
-                            Icons.location_on,
-                            color: Colors.green,
-                            size: 40,
+                          child: Semantics(
+                            label: 'Sepet başlangıç noktası (A)',
+                            child: const Icon(
+                              Icons.location_on,
+                              color: Colors.green,
+                              size: 40,
+                            ),
                           ),
                         ),
 
@@ -188,10 +215,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
                               showBasket.endLongitude!),
                           width: 40,
                           height: 40,
-                          child: const Icon(
-                            Icons.flag,
-                            color: Colors.red,
-                            size: 40,
+                          child: Semantics(
+                            label: 'Sepet bitiş noktası (B)',
+                            child: const Icon(
+                              Icons.flag,
+                              color: Colors.red,
+                              size: 40,
+                            ),
                           ),
                         ),
                     ],
@@ -218,10 +248,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           child: Row(
                             children: [
                               Icon(
-                                Icons.gps_fixed,
-                                color: _viewModel.isGpsAccuracyGood
-                                    ? Colors.green
-                                    : Colors.orange,
+                                _viewModel.isGpsError
+                                    ? Icons.gps_off
+                                    : Icons.gps_fixed,
+                                color: _gpsStatusColor(context),
                                 size: 20,
                               ),
                               const SizedBox(width: 8),
@@ -244,7 +274,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     _buildRoundButton(
                       icon: Icons.flash_on,
                       color: _viewModel.isBoostMode
-                          ? Colors.amber.shade700
+                          ? Colors.deepOrange.shade900
                           : Colors.grey.shade700,
                       iconColor: Colors.white,
                       tooltip: 'GPS Boost (Hassas Mod)',
@@ -305,12 +335,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
               // --- 3. HARİTA KONTROL ARAÇLARI (Konumuma Git) ---
               Positioned(
-                bottom: _getBottomOffset(showBasket),
+                bottom: _getBottomOffset(),
                 right: 16,
                 child: FloatingActionButton(
-                  mini: true,
-                  backgroundColor: Colors.white,
-                  foregroundColor: Colors.blue.shade700,
+                  backgroundColor: Theme.of(context).colorScheme.surface,
+                  foregroundColor: Theme.of(context).colorScheme.primary,
+                  tooltip: 'Konumuma Git',
                   onPressed: () {
                     if (currentPos != null) {
                       _focusOnLocation(userLatLng, 15.0);
@@ -330,7 +360,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 bottom: 0,
                 left: 0,
                 right: 0,
-                child: _buildBottomPanel(context, currentPos, userLatLng),
+                child: KeyedSubtree(
+                  key: _bottomPanelKey,
+                  child: _buildBottomPanel(context, currentPos, userLatLng),
+                ),
               ),
 
               // --- 5. İZİN YOKSA BİLGİLENDİRME OVERLAY'İ ---
@@ -366,18 +399,31 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
+  /// GPS durum kartındaki ikon rengi (hata / iyi / zayıf).
+  Color _gpsStatusColor(BuildContext context) {
+    if (_viewModel.isGpsError) {
+      return Theme.of(context).colorScheme.error;
+    }
+    if (_viewModel.isGpsAccuracyGood) {
+      return _adaptiveColor(context, Colors.green.shade700, Colors.green.shade300);
+    }
+    return _adaptiveColor(context, Colors.orange.shade800, Colors.orange.shade300);
+  }
+
   /// İzin reddedildiğinde harita üzerinde gösterilen bilgilendirme paneli
   Widget _buildPermissionOverlay(BuildContext context) {
+    // Koyu turuncu zemin + beyaz metin: WCAG AA kontrastını geçer.
+    const overlayColor = Color(0xFFBF360C); // deepOrange.shade900
     return Positioned(
       bottom: 0,
       left: 0,
       right: 0,
       child: Container(
         padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
-        decoration: BoxDecoration(
-          color: Colors.orange.shade800,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          boxShadow: const [
+        decoration: const BoxDecoration(
+          color: overlayColor,
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          boxShadow: [
             BoxShadow(color: Colors.black26, blurRadius: 10, offset: Offset(0, -3)),
           ],
         ),
@@ -433,7 +479,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     child: ElevatedButton.icon(
                       style: ElevatedButton.styleFrom(
                         backgroundColor: Colors.white,
-                        foregroundColor: Colors.orange.shade800,
+                        foregroundColor: overlayColor,
                         padding: const EdgeInsets.symmetric(vertical: 12),
                       ),
                       onPressed: () async {
@@ -458,13 +504,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
     final active = _viewModel.activeBasket;
     if (active == null) return;
 
+    final scheme = Theme.of(context).colorScheme;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.restore, color: Colors.green.shade700),
+            Icon(Icons.restore, color: Colors.green.shade800),
             const SizedBox(width: 8),
             const Text('Devam Eden Kayıt'),
           ],
@@ -479,11 +526,11 @@ class _HaritaEkranState extends State<HaritaEkran> {
               Navigator.pop(context);
               _viewModel.cancelRecording();
             },
-            child: const Text('İptal Et', style: TextStyle(color: Colors.red)),
+            child: Text('İptal Et', style: TextStyle(color: scheme.error)),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green.shade700,
+              backgroundColor: Colors.green.shade800,
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(context),
@@ -494,9 +541,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  double _getBottomOffset(BasketModel? showBasket) {
-    if (showBasket == null) return 100.0;
-    return 260.0;
+  /// Alt panelin ölçülen yüksekliğine göre FAB konumunu döner.
+  double _getBottomOffset() {
+    return _bottomPanelHeight + 16;
   }
 
   Widget _buildRoundButton({
@@ -510,13 +557,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
       decoration: BoxDecoration(
         color: color,
         shape: BoxShape.circle,
-        boxShadow: const [
-          BoxShadow(
-            color: Colors.black26,
-            blurRadius: 4,
-            offset: Offset(0, 2),
-          )
-        ],
       ),
       child: IconButton(
         icon: Icon(icon, color: iconColor),
@@ -528,6 +568,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
   Widget _buildBottomPanel(
       BuildContext context, Position? currentPos, LatLng userLatLng) {
+    final scheme = Theme.of(context).colorScheme;
+
     // 1. Durum: Aktif bir kayıt süreci var (A noktası alındı, B bekleniyor)
     if (_viewModel.activeBasket != null) {
       final active = _viewModel.activeBasket!;
@@ -539,7 +581,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
       return Container(
         padding: const EdgeInsets.all(16),
-        decoration: _bottomPanelDecoration(),
+        decoration: _bottomPanelDecoration(context),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -566,8 +608,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Expanded(
                   child: OutlinedButton.icon(
                     style: OutlinedButton.styleFrom(
-                      foregroundColor: Colors.red,
-                      side: const BorderSide(color: Colors.red),
+                      foregroundColor: scheme.error,
+                      side: BorderSide(color: scheme.error),
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: () {
@@ -581,7 +623,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red.shade700,
+                      backgroundColor: Colors.red.shade800,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
@@ -615,16 +657,19 @@ class _HaritaEkranState extends State<HaritaEkran> {
             selected.distanceToLine(currentPos.latitude, currentPos.longitude);
       }
 
+      final aColor = _adaptiveColor(context, Colors.green.shade800, Colors.green.shade300);
+      final bColor = _adaptiveColor(context, Colors.red.shade800, Colors.red.shade300);
+
       return Container(
         padding: const EdgeInsets.all(16),
-        decoration: _bottomPanelDecoration(),
+        decoration: _bottomPanelDecoration(context),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Row(
               children: [
-                const Icon(Icons.map, color: Colors.blue),
+                Icon(Icons.map, color: scheme.primary),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -635,6 +680,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.close),
+                  tooltip: 'Kapat',
                   onPressed: () => _viewModel.selectBasket(null),
                 ),
               ],
@@ -650,13 +696,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   style: TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.bold,
-                    color: Colors.blue.shade800,
+                    color: scheme.primary,
                   ),
                 ),
               ],
               if (distToStart != null && distToEnd != null) ...[
                 const SizedBox(height: 8),
-                // Anlık mesafe kartları — her konum güncellemesinde otomatik yenilenir
+                // Anlık mesafe kartları: her konum güncellemesinde otomatik yenilenir
                 Row(
                   children: [
                     // A Noktasına Anlık Mesafe
@@ -664,9 +710,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                         decoration: BoxDecoration(
-                          color: Colors.green.shade50,
+                          color: scheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.green.shade300),
+                          border: Border.all(color: aColor),
                         ),
                         child: Column(
                           children: [
@@ -674,14 +720,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.circle, color: Colors.green.shade600, size: 8),
+                                Icon(Icons.circle, color: aColor, size: 8),
                                 const SizedBox(width: 4),
                                 Text(
                                   'A Noktası',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.green.shade800,
+                                    color: aColor,
                                   ),
                                 ),
                               ],
@@ -692,7 +738,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.green.shade900,
+                                color: scheme.onSurface,
                               ),
                             ),
                           ],
@@ -705,9 +751,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
                         decoration: BoxDecoration(
-                          color: Colors.red.shade50,
+                          color: scheme.surfaceContainerHighest,
                           borderRadius: BorderRadius.circular(10),
-                          border: Border.all(color: Colors.red.shade300),
+                          border: Border.all(color: bColor),
                         ),
                         child: Column(
                           children: [
@@ -715,25 +761,25 @@ class _HaritaEkranState extends State<HaritaEkran> {
                               mainAxisAlignment: MainAxisAlignment.center,
                               mainAxisSize: MainAxisSize.min,
                               children: [
-                                Icon(Icons.circle, color: Colors.red.shade600, size: 8),
+                                Icon(Icons.circle, color: bColor, size: 8),
                                 const SizedBox(width: 4),
                                 Text(
                                   'B Noktası',
                                   style: TextStyle(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
-                                    color: Colors.red.shade800,
+                                    color: bColor,
                                   ),
                                 ),
                               ],
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              '${distToEnd!.toStringAsFixed(1)} m',
+                              '${distToEnd.toStringAsFixed(1)} m',
                               style: TextStyle(
                                 fontSize: 20,
                                 fontWeight: FontWeight.bold,
-                                color: Colors.red.shade900,
+                                color: scheme.onSurface,
                               ),
                             ),
                           ],
@@ -764,7 +810,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Expanded(
                   child: ElevatedButton.icon(
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
+                      backgroundColor: Colors.green.shade800,
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
@@ -789,14 +835,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
     // 3. Durum: Varsayılan Durum (Kayıt yok, seçim yok -> Yeni Sepet Başlatma)
     return Container(
       padding: const EdgeInsets.all(16),
-      decoration: _bottomPanelDecoration(),
+      decoration: _bottomPanelDecoration(context),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text(
+          Text(
             'Sepet konum takibi yapmak için A noktasında kaydı başlatın.',
             textAlign: TextAlign.center,
-            style: TextStyle(fontSize: 13, color: Colors.black54),
+            style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
           ),
           const SizedBox(height: 12),
           SizedBox(
@@ -804,7 +850,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
             height: 48,
             child: ElevatedButton.icon(
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.green.shade700,
+                backgroundColor: Colors.green.shade800,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                     borderRadius: BorderRadius.circular(8)),
@@ -825,31 +871,34 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  BoxDecoration _bottomPanelDecoration() {
-    return const BoxDecoration(
-      color: Colors.white,
-      borderRadius: BorderRadius.only(
+  BoxDecoration _bottomPanelDecoration(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return BoxDecoration(
+      color: scheme.surface,
+      borderRadius: const BorderRadius.only(
         topLeft: Radius.circular(20),
         topRight: Radius.circular(20),
       ),
       boxShadow: [
         BoxShadow(
-          color: Colors.black12,
+          color: Colors.black.withValues(alpha: 0.12),
           blurRadius: 10,
           spreadRadius: 2,
-          offset: Offset(0, -3),
+          offset: const Offset(0, -3),
         )
       ],
     );
   }
 
   void _showAccuracyWarning(BuildContext context, VoidCallback onProceed) {
+    final warningColor =
+        _adaptiveColor(context, Colors.deepOrange.shade900, Colors.orange.shade300);
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
         title: Row(
           children: [
-            Icon(Icons.warning, color: Colors.orange.shade800),
+            Icon(Icons.warning, color: warningColor),
             const SizedBox(width: 8),
             const Text('Düşük Sinyal Uyarısı'),
           ],
@@ -866,13 +915,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.orange.shade800),
+                backgroundColor: Colors.deepOrange.shade900,
+                foregroundColor: Colors.white),
             onPressed: () {
               Navigator.pop(context);
               onProceed();
             },
-            child: const Text('Yine de Devam Et',
-                style: TextStyle(color: Colors.white)),
+            child: const Text('Yine de Devam Et'),
           ),
         ],
       ),

@@ -47,3 +47,9 @@ app.*.map.json
 # Agent Settings
 /SECURITY.md
 /TASK.md
+# flutter SDK
+flutter
+# Skiller
+skills
+agent-plugins
+/anti-slop

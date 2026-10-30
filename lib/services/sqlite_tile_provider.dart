@@ -42,7 +42,7 @@ class SqliteTileProvider extends TileProvider {
 }
 
 // ---------------------------------------------------------------------------
-// Dahili ImageProvider — SQLite cache + network fallback
+// Dahili ImageProvider: SQLite cache + network fallback
 // ---------------------------------------------------------------------------
 
 class _SqliteTileImageProvider
@@ -101,12 +101,12 @@ class _SqliteTileImageProvider
         final bytes = await response
             .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
         final data = Uint8List.fromList(bytes);
-        // Arka planda kaydet (awaitsiz — UI'yı bloklamaz)
-        cache.saveTile(z, x, y, data);
-        return _decodeBytes(data, decode);
+        // Arka planda kaydet (awaitsiz, UI'yı bloklamaz)
+        unawaited(cache.saveTile(z, x, y, data));
+        return await _decodeBytes(data, decode);
       }
     } catch (_) {
-      // Ağ hatası — boş tile döner
+      // Ağ hatası: boş tile döner
     }
 
     // 3. Fallback: 1×1 şeffaf PNG

@@ -81,7 +81,7 @@ class SqliteTileCacheService {
         conflictAlgorithm: ConflictAlgorithm.ignore,
       );
     } catch (_) {
-      // Yazma hatası — yoksay
+      // Yazma hatası: yoksay
     }
   }
 

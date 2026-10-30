@@ -46,7 +46,7 @@ class BasketModel {
   }
 
   /// Haversine formülü ile iki nokta arasındaki mesafeyi (metre) hesaplar.
-  /// Standart formül — CODES.md ile uyumlu (R = 6371000 m).
+  /// Standart formül: CODES.md ile uyumlu (R = 6371000 m).
   static double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
     const double R = 6371000.0; // Dünya yarıçapı (metre)
     final dLat = _toRadians(lat2 - lat1);
@@ -94,7 +94,7 @@ class BasketModel {
     final double dotProduct = acX * abX + acY * abY;
     final double abLenSq = abX * abX + abY * abY;
 
-    // İzdüşüm oranı (t) — clamping [0, 1]
+    // İzdüşüm oranı (t): clamping [0, 1]
     double t = (abLenSq != 0.0) ? dotProduct / abLenSq : 0.0;
     if (t < 0.0) t = 0.0;
     if (t > 1.0) t = 1.0;
