@@ -22,6 +22,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -53,6 +54,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -87,6 +89,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -117,6 +120,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -149,6 +153,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -174,6 +179,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
@@ -199,6 +205,7 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: ${{ env.FLUTTER_CHANNEL }}
+          flutter-version: 3.47.9
           cache: true
 
       - name: Install dependencies
