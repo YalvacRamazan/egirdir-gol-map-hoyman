@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -23,6 +25,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapViewModel _viewModel = MapViewModel();
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
+
+  /// Tile provider yalnızca bir kez oluşturulur; her rebuild'de yeni bir
+  /// HttpClient kurulup eskisinin atılmasını (kaynak churn) önler.
+  final SqliteTileProvider _tileProvider = SqliteTileProvider();
+
+  /// Aynı karede birden fazla ölçüm planlamasını önleyen guard
+  bool _isMeasureScheduled = false;
 
   /// Alt panelin gerçek yüksekliğini ölçmek için (FAB çakışmasını önler)
   final GlobalKey _bottomPanelKey = GlobalKey();
@@ -60,6 +69,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
     _viewModel.removeListener(_onViewModelChanged);
     _viewModel.dispose();
     _mapController.dispose();
+    _tileProvider.dispose();
     super.dispose();
   }
 
@@ -83,6 +93,17 @@ class _HaritaEkranState extends State<HaritaEkran> {
     }
   }
 
+  /// Alt panel ölçümünü bir sonraki kareye planlar.
+  /// Aynı karedeki tekrarlanan build'lerde yalnızca tek callback kaydedilir.
+  void _scheduleBottomPanelMeasure() {
+    if (_isMeasureScheduled) return;
+    _isMeasureScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _isMeasureScheduled = false;
+      _measureBottomPanel();
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
@@ -97,7 +118,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
         final showBasket = _viewModel.selectedBasket ?? _viewModel.activeBasket;
 
         // Panel yüksekliği değiştiyse bir sonraki karede yeniden ölç
-        WidgetsBinding.instance.addPostFrameCallback((_) => _measureBottomPanel());
+        _scheduleBottomPanelMeasure();
 
         return Scaffold(
           body: Stack(
@@ -119,7 +140,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.rumata.gol_sepet_takip',
-                    tileProvider: SqliteTileProvider(),
+                    tileProvider: _tileProvider,
                   ),
 
                   // GPS Doğruluk Çemberi (Sadece GPS aktifse çizilir)
@@ -629,8 +650,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     ),
                     onPressed: !_viewModel.isGpsAccuracyGood
                         ? () => _showAccuracyWarning(
-                            context, () => _stopRecording(context))
-                        : () => _stopRecording(context),
+                            context, () => unawaited(_stopRecording(context)))
+                        : () => unawaited(_stopRecording(context)),
                     icon: const Icon(Icons.stop),
                     label: const Text('B Noktası (Bitir)'),
                   ),
@@ -969,10 +990,11 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
         ],
       ),
-    );
+      // Dialog kapandığında (İptal / Başlat / dışarı tık) controller'ı serbest bırak
+    ).whenComplete(nameController.dispose);
   }
 
-  void _stopRecording(BuildContext context) async {
+  Future<void> _stopRecording(BuildContext context) async {
     final completed = await _viewModel.stopRecordingBasket();
     if (completed != null && context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(

@@ -9,6 +9,8 @@ class DatabaseService {
   DatabaseService._internal();
 
   static Database? _database;
+  // Tek seferlik init: eşzamanlı çağrılar aynı Future'ı bekler, race önlenir
+  static Future<Database>? _databaseFuture;
   
   // Web için geçici bellek içi depolama
   final List<BasketModel> _webBaskets = [];
@@ -16,9 +18,7 @@ class DatabaseService {
 
   Future<Database?> get database async {
     if (kIsWeb) return null;
-    if (_database != null) return _database!;
-    _database = await _initDatabase();
-    return _database!;
+    return _database ??= await (_databaseFuture ??= _initDatabase());
   }
 
   Future<Database> _initDatabase() async {

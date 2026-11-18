@@ -116,9 +116,16 @@ class _SqliteTileImageProvider
   Future<ImageInfo> _decodeBytes(
       Uint8List bytes, ImageDecoderCallback decode) async {
     final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    final codec = await decode(buffer);
-    final frame = await codec.getNextFrame();
-    return ImageInfo(image: frame.image);
+    ui.Codec? codec;
+    try {
+      codec = await decode(buffer);
+      final frame = await codec.getNextFrame();
+      return ImageInfo(image: frame.image);
+    } finally {
+      // Native bellek sızıntısını önle: codec ve buffer her durumda serbest kalır
+      codec?.dispose();
+      buffer.dispose();
+    }
   }
 
   @override

@@ -126,10 +126,10 @@ class BasketModel {
     return BasketModel(
       id: map['id'] as int?,
       name: map['name'] as String,
-      startLatitude: map['start_latitude'] as double,
-      startLongitude: map['start_longitude'] as double,
-      endLatitude: map['end_latitude'] as double?,
-      endLongitude: map['end_longitude'] as double?,
+      startLatitude: (map['start_latitude'] as num).toDouble(),
+      startLongitude: (map['start_longitude'] as num).toDouble(),
+      endLatitude: (map['end_latitude'] as num?)?.toDouble(),
+      endLongitude: (map['end_longitude'] as num?)?.toDouble(),
       startTimestamp: DateTime.parse(map['start_timestamp'] as String),
       endTimestamp: map['end_timestamp'] != null 
           ? DateTime.parse(map['end_timestamp'] as String) 

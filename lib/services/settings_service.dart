@@ -66,6 +66,7 @@ class SettingsService {
       }
     } catch (e) {
       // Hata durumunda varsayılan ayarlarla devam et
+      debugPrint('SettingsService init: ayarlar okunamadı, varsayılana dönüldü: $e');
     }
     themeModeNotifier.value = _parseThemeMode(_settings.themeMode);
   }
@@ -80,6 +81,7 @@ class SettingsService {
         await _settingsFile!.writeAsString(jsonEncode(_settings.toJson()));
       } catch (e) {
         // Hata durumunu yoksay
+        debugPrint('SettingsService saveSettings: ayarlar diske yazılamadı: $e');
       }
     }
   }

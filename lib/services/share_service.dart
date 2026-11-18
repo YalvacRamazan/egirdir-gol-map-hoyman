@@ -46,10 +46,13 @@ class ShareService {
       final b = baskets[i];
       buffer.writeln("${i + 1}. ${b.name}");
       buffer.writeln("A (Başlangıç): ${b.startLatitude.toStringAsFixed(6)}, ${b.startLongitude.toStringAsFixed(6)}");
-      if (b.isCompleted) {
+      // is_completed=1 olsa bile end_* alanları NULL kalabilir; null-safe oku
+      if (b.isCompleted && b.endLatitude != null && b.endLongitude != null) {
         buffer.writeln("B (Bitiş): ${b.endLatitude!.toStringAsFixed(6)}, ${b.endLongitude!.toStringAsFixed(6)}");
         buffer.writeln("Mesafe: ${b.distanceInMeters.toStringAsFixed(1)} metre");
-        buffer.writeln("Süre: ${b.endTimestamp!.difference(b.startTimestamp).inMinutes} dk");
+        if (b.endTimestamp != null) {
+          buffer.writeln("Süre: ${b.endTimestamp!.difference(b.startTimestamp).inMinutes} dk");
+        }
       } else {
         buffer.writeln("B (Bitiş): Kaydedilmedi (Yarım Sepet)");
       }

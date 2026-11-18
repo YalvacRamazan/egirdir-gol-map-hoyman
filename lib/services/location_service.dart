@@ -142,8 +142,11 @@ class LocationService {
     );
   }
 
+  /// Singleton örnekte broadcast controller kapatılmaz; aksi halde dispose
+  /// sonrası [_positionController.add] StateError fırlatır. Yalnızca GPS
+  /// aboneliği iptal edilir, stream yeni dinleyiciler için açık kalır.
   void dispose() {
     _positionStreamSubscription?.cancel();
-    _positionController.close();
+    _positionStreamSubscription = null;
   }
 }

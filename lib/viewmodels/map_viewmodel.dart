@@ -51,36 +51,44 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> init() async {
     WidgetsBinding.instance.addObserver(this);
 
-    // SQLite harita önbelleğini başlat
-    await SqliteTileCacheService().init();
+    try {
+      // SQLite harita önbelleğini başlat
+      await SqliteTileCacheService().init();
 
-    await loadBaskets();
+      await loadBaskets();
 
-    // Aktif (yarım kalmış) sepet varsa yükle
-    final activeList = await _dbService.getActiveBaskets();
-    if (activeList.isNotEmpty) {
-      _activeBasket = activeList.first;
-    }
-
-    // Aktif kayıt yoksa en son tamamlanmış sepeti otomatik seç
-    // → Uygulama açılır açılmaz mesafe bilgisi görünsün
-    if (_activeBasket == null && _baskets.isNotEmpty) {
-      final lastCompleted = _baskets.where((b) => b.isCompleted).toList();
-      if (lastCompleted.isNotEmpty) {
-        _selectedBasket = lastCompleted.first;
+      // Aktif (yarım kalmış) sepet varsa yükle
+      final activeList = await _dbService.getActiveBaskets();
+      if (activeList.isNotEmpty) {
+        _activeBasket = activeList.first;
       }
-    }
 
-    // İzinleri kontrol et ve konumu başlat
-    final permResult = await _locationService.checkAndRequestPermissionDetailed();
-    _isPermissionGranted = permResult.granted;
+      // Aktif kayıt yoksa en son tamamlanmış sepeti otomatik seç
+      // → Uygulama açılır açılmaz mesafe bilgisi görünsün
+      if (_activeBasket == null && _baskets.isNotEmpty) {
+        final lastCompleted = _baskets.where((b) => b.isCompleted).toList();
+        if (lastCompleted.isNotEmpty) {
+          _selectedBasket = lastCompleted.first;
+        }
+      }
 
-    if (_isPermissionGranted) {
-      startLocationTracking();
-    } else {
-      _permissionDeniedReason = permResult.reason;
-      _isPermissionPermanentlyDenied = permResult.isPermanentlyDenied;
-      _gpsStatusText = 'GPS İzni Verilmedi';
+      // İzinleri kontrol et ve konumu başlat
+      final permResult =
+          await _locationService.checkAndRequestPermissionDetailed();
+      _isPermissionGranted = permResult.granted;
+
+      if (_isPermissionGranted) {
+        startLocationTracking();
+      } else {
+        _permissionDeniedReason = permResult.reason;
+        _isPermissionPermanentlyDenied = permResult.isPermanentlyDenied;
+        _gpsStatusText = 'GPS İzni Verilmedi';
+      }
+    } catch (e, stack) {
+      // Kök neden kaybolmasın: hatayı stack trace ile logla
+      debugPrint('MapViewModel.init() başlatma hatası: $e\n$stack');
+      _gpsStatusText = 'Başlatma hatası: $e';
+      _isGpsError = true;
     }
 
     _isInitializing = false;
