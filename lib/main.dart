@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:map/services/settings_service.dart';
+import 'package:map/theme/palette.dart';
 import 'package:map/views/harita_ekran.dart';
 
 void main() async {
@@ -16,9 +17,6 @@ void main() async {
 
 class KonumTakipApp extends StatelessWidget {
   const KonumTakipApp({super.key});
-
-  /// Marka rengi: göl mavisi (blue.shade800). DESIGN.md ile belgelenmiştir.
-  static const Color _seedColor = Color(0xFF1565C0);
 
   @override
   Widget build(BuildContext context) {
@@ -39,8 +37,10 @@ class KonumTakipApp extends StatelessWidget {
   }
 
   ThemeData _buildTheme(Brightness brightness) {
+    // Marka rengi: göl mavisi #1565C0 (blue.shade800) — Palette.primary.
+    // fromSeed, her iki parlaklık için AA uyumlu tonal varyantlar üretir.
     final scheme = ColorScheme.fromSeed(
-      seedColor: _seedColor,
+      seedColor: Palette.primary,
       brightness: brightness,
     );
     return ThemeData(

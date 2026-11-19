@@ -1,5 +1,21 @@
-# K Sepet Takip
+# Göl Sepet Takip
 
-- Kerevit sepetlerini göl haritası üzerinde takip etmek için kullanılan bir uygulamadır.
-- Flutter ile yazılmış ve OpenStreetMap ile de konum işlemleri tanımlanmaktadır.
-- Isparta/Hoyman Gölü için özelleşitirilmiştir.
+Eğirdir/Hoyman Gölü'nde kerevit sepetlerinin A ve B noktalarını haritadan kaydeden, A→B rotasyonunu pusula ile gösteren ve rota bilgisini WhatsApp ile paylaşan saha aracı.
+
+## Çalıştırma
+
+```sh
+./flutter/bin/flutter run
+```
+
+## Test
+
+```sh
+./flutter/bin/flutter test
+```
+
+## Analiz
+
+```sh
+./flutter/bin/flutter analyze
+```

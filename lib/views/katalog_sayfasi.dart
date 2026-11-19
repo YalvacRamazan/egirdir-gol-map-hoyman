@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:map/models/basket_model.dart';
 import 'package:map/services/share_service.dart';
+import 'package:map/theme/palette.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 
 class KatalogSayfasi extends StatelessWidget {
@@ -61,7 +62,8 @@ class KatalogSayfasi extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            basket.name,
+                            // A noktası adı varsa onu göster, yoksa rota adı
+                            _displayName(basket),
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
                               fontSize: 16,
@@ -90,6 +92,11 @@ class KatalogSayfasi extends StatelessWidget {
                                 fontWeight: FontWeight.w500,
                               ),
                             ),
+                            const SizedBox(height: 2),
+                            Text(
+                              'B: ${basket.endDisplayName}',
+                              style: const TextStyle(fontSize: 13),
+                            ),
                           ],
                         ],
                       ),
@@ -98,9 +105,14 @@ class KatalogSayfasi extends StatelessWidget {
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         IconButton(
-                          icon: const Icon(Icons.share, color: Colors.green),
+                          icon: Icon(
+                            Icons.share,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
                           tooltip: 'Paylaş',
                           onPressed: () {
+                            // Geçmiş sepet paylaşımında anlık cihaz yönü
+                            // kullanılmaz; rotasyon "yön verisi yok" görünür.
                             ShareService().shareBasket(
                               basket,
                               targetPhoneNumber: backupPhoneNumber,
@@ -108,7 +120,10 @@ class KatalogSayfasi extends StatelessWidget {
                           },
                         ),
                         IconButton(
-                          icon: const Icon(Icons.delete, color: Colors.red),
+                          icon: Icon(
+                            Icons.delete,
+                            color: Theme.of(context).colorScheme.error,
+                          ),
                           tooltip: 'Sil',
                           onPressed: () => _confirmDelete(context, basket),
                         ),
@@ -119,7 +134,8 @@ class KatalogSayfasi extends StatelessWidget {
                       Navigator.pop(context); // Harita ekranına geri dön
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text('${basket.name} haritada gösteriliyor.'),
+                          content:
+                              Text('${_displayName(basket)} haritada gösteriliyor.'),
                           duration: const Duration(seconds: 2),
                         ),
                       );
@@ -174,7 +190,7 @@ class KatalogSayfasi extends StatelessWidget {
   Widget _buildStatusBadge(BasketModel basket) {
     // Koyu zemin + beyaz metin: her iki temada da WCAG AA kontrastını geçer.
     final background =
-        basket.isCompleted ? Colors.green.shade800 : Colors.deepOrange.shade900;
+        basket.isCompleted ? Palette.pointA : Palette.accentWarning;
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       decoration: BoxDecoration(
@@ -185,12 +201,15 @@ class KatalogSayfasi extends StatelessWidget {
         basket.isCompleted ? 'Tamamlandı' : 'Açık (Yarım)',
         style: const TextStyle(
           color: Colors.white,
-          fontSize: 11,
+          fontSize: 13,
           fontWeight: FontWeight.bold,
         ),
       ),
     );
   }
+
+  /// Listede gösterilen ad: A noktası adı varsa o, yoksa rota adı.
+  String _displayName(BasketModel basket) => basket.startName ?? basket.name;
 
   String _formatDateTime(DateTime dt) {
     final local = dt.toLocal();
@@ -203,7 +222,7 @@ class KatalogSayfasi extends StatelessWidget {
       context: context,
       builder: (context) => AlertDialog(
         title: const Text('Sepeti Sil'),
-        content: Text('${basket.name} sepetini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.'),
+        content: Text('${_displayName(basket)} sepetini silmek istediğinize emin misiniz? Bu işlem geri alınamaz.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context),

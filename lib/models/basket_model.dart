@@ -1,8 +1,13 @@
 import 'dart:math';
 
+import 'package:latlong2/latlong.dart';
+import 'package:map/utils/bearing.dart' as bearing;
+
 class BasketModel {
   final int? id;
   final String name;
+  final String? startName;
+  final String? endName;
   final double startLatitude;
   final double startLongitude;
   final double? endLatitude;
@@ -14,6 +19,8 @@ class BasketModel {
   BasketModel({
     this.id,
     required this.name,
+    this.startName,
+    this.endName,
     required this.startLatitude,
     required this.startLongitude,
     this.endLatitude,
@@ -22,6 +29,16 @@ class BasketModel {
     this.endTimestamp,
     this.isCompleted = false,
   });
+
+  /// A (başlangıç) noktasının görüntülenecek adı; atanmadıysa varsayılan etiket.
+  String get startDisplayName => (startName == null || startName!.trim().isEmpty)
+      ? 'A Noktası'
+      : startName!;
+
+  /// B (bitiş) noktasının görüntülenecek adı; atanmadıysa varsayılan etiket.
+  String get endDisplayName => (endName == null || endName!.trim().isEmpty)
+      ? 'B Noktası'
+      : endName!;
 
   /// Sepetin başlangıç ve bitiş noktası arasındaki mesafeyi metre cinsinden döner.
   double get distanceInMeters {
@@ -32,6 +49,27 @@ class BasketModel {
       endLatitude!,
       endLongitude!,
     );
+  }
+
+  /// A→B (başlangıçtan bitişe) büyük daire başlangıç bearing'ini derece
+  /// cinsinden ([0, 360)) döner. Bitiş noktası yoksa null döner.
+  double? get initialBearing {
+    if (endLatitude == null || endLongitude == null) return null;
+    return bearing.initialBearing(
+      LatLng(startLatitude, startLongitude),
+      LatLng(endLatitude!, endLongitude!),
+    );
+  }
+
+  /// Cihaz yönü [currentHeading] biliniyorsa, A→B hedef bearing'i ile mevcut
+  /// yön arasındaki en kısa işaretli açı farkını (rotasyon) derece cinsinden
+  /// döner: pozitif saat yönünde, negatif saat yönünün tersine dönüş.
+  /// Bitiş noktası veya cihaz yönü yoksa null döner.
+  double? initialBearingFrom(double? currentHeading) {
+    if (currentHeading == null) return null;
+    final target = initialBearing;
+    if (target == null) return null;
+    return bearing.shortestAngleDifference(target, currentHeading);
   }
 
   /// Belirli bir koordinatın başlangıç noktasına olan uzaklığını metre cinsinden döner.
@@ -111,6 +149,8 @@ class BasketModel {
     return {
       if (id != null) 'id': id,
       'name': name,
+      'start_name': startName,
+      'end_name': endName,
       'start_latitude': startLatitude,
       'start_longitude': startLongitude,
       'end_latitude': endLatitude,
@@ -126,6 +166,9 @@ class BasketModel {
     return BasketModel(
       id: map['id'] as int?,
       name: map['name'] as String,
+      // Eski kayıtlarda bu alanlar yoktur; null ile okunur (fallback).
+      startName: map['start_name'] as String?,
+      endName: map['end_name'] as String?,
       startLatitude: (map['start_latitude'] as num).toDouble(),
       startLongitude: (map['start_longitude'] as num).toDouble(),
       endLatitude: (map['end_latitude'] as num?)?.toDouble(),
@@ -142,6 +185,8 @@ class BasketModel {
   BasketModel copyWith({
     int? id,
     String? name,
+    String? startName,
+    String? endName,
     double? startLatitude,
     double? startLongitude,
     double? endLatitude,
@@ -153,6 +198,8 @@ class BasketModel {
     return BasketModel(
       id: id ?? this.id,
       name: name ?? this.name,
+      startName: startName ?? this.startName,
+      endName: endName ?? this.endName,
       startLatitude: startLatitude ?? this.startLatitude,
       startLongitude: startLongitude ?? this.startLongitude,
       endLatitude: endLatitude ?? this.endLatitude,

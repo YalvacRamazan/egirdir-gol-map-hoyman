@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
 /// Konum izni durumunu açıklayan sonuç sınıfı
@@ -7,10 +8,15 @@ class LocationPermissionResult {
   final String reason; // kullanıcıya gösterilecek açıklama
   final bool isPermanentlyDenied;
 
+  /// Platform konum servisini hiç desteklemiyor (ör. Linux/Windows masaüstü).
+  /// Bu durumda izin overlay'i gösterilmez; uygulama konumsuz modda çalışır.
+  final bool isUnavailable;
+
   const LocationPermissionResult({
     required this.granted,
     required this.reason,
     this.isPermanentlyDenied = false,
+    this.isUnavailable = false,
   });
 }
 
@@ -36,41 +42,54 @@ class LocationService {
   }
 
   /// Konum izinlerini kontrol eder; ret nedenini de döner.
+  ///
+  /// geolocator yalnızca Android/iOS/macOS/Web'i destekler; Linux/Windows
+  /// masaüstünde platform kanalı yoktur ve çağrılar MissingPluginException
+  /// fırlatır. Bu durumda hata yerine [LocationPermissionResult.isUnavailable]
+  /// ile konumsuz mod sinyallenir.
   Future<LocationPermissionResult> checkAndRequestPermissionDetailed() async {
-    bool serviceEnabled;
-    LocationPermission permission;
+    try {
+      bool serviceEnabled;
+      LocationPermission permission;
 
-    serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return const LocationPermissionResult(
-        granted: false,
-        reason: 'GPS/Konum servisi kapalı. Lütfen cihazınızın konum ayarlarını açın.',
-      );
-    }
-
-    permission = await Geolocator.checkPermission();
-    if (permission == LocationPermission.denied) {
-      permission = await Geolocator.requestPermission();
-      if (permission == LocationPermission.denied) {
+      serviceEnabled = await Geolocator.isLocationServiceEnabled();
+      if (!serviceEnabled) {
         return const LocationPermissionResult(
           granted: false,
-          reason: 'Konum izni reddedildi. Harita özelliklerini kullanmak için izin gereklidir.',
+          reason: 'GPS/Konum servisi kapalı. Lütfen cihazınızın konum ayarlarını açın.',
         );
       }
-    }
 
-    if (permission == LocationPermission.deniedForever) {
+      permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        permission = await Geolocator.requestPermission();
+        if (permission == LocationPermission.denied) {
+          return const LocationPermissionResult(
+            granted: false,
+            reason: 'Konum izni reddedildi. Harita özelliklerini kullanmak için izin gereklidir.',
+          );
+        }
+      }
+
+      if (permission == LocationPermission.deniedForever) {
+        return const LocationPermissionResult(
+          granted: false,
+          reason: 'Konum izni kalıcı olarak engellendi. Lütfen Ayarlar → Uygulama İzinleri bölümünden izin verin.',
+          isPermanentlyDenied: true,
+        );
+      }
+
+      return const LocationPermissionResult(
+        granted: true,
+        reason: '',
+      );
+    } on MissingPluginException {
       return const LocationPermissionResult(
         granted: false,
-        reason: 'Konum izni kalıcı olarak engellendi. Lütfen Ayarlar → Uygulama İzinleri bölümünden izin verin.',
-        isPermanentlyDenied: true,
+        reason: 'Bu cihazda konum servisi desteklenmiyor.',
+        isUnavailable: true,
       );
     }
-
-    return const LocationPermissionResult(
-      granted: true,
-      reason: '',
-    );
   }
 
   /// Konum takibini başlatır.

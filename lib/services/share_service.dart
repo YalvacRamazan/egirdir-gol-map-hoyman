@@ -8,8 +8,17 @@ class ShareService {
   ShareService._internal();
 
   /// Bir sepetin konum bilgilerini şablon mesaj olarak paylaşır.
-  Future<void> shareBasket(BasketModel basket, {String? targetPhoneNumber}) async {
-    final message = _formatBasketMessage(basket);
+  ///
+  /// [currentHeading] verilirse mesaja A→B hedef yönüne göre hesaplanan
+  /// rotasyon satırı eklenir; verilmezse rotasyon "yön verisi yok" görünür.
+  /// Mesaj doğrudan gönderilmez; WhatsApp/sistem paylaşım akışı kullanıcı
+  /// onayıyla açılır.
+  Future<void> shareBasket(
+    BasketModel basket, {
+    String? targetPhoneNumber,
+    double? currentHeading,
+  }) async {
+    final message = formatBasketMessage(basket, currentHeading: currentHeading);
 
     if (targetPhoneNumber != null && targetPhoneNumber.isNotEmpty) {
       // Belirli bir numaraya direkt WhatsApp mesajı gönderimi
@@ -65,21 +74,36 @@ class ShareService {
   }
 
   /// Tek sepet için paylaşım metnini oluşturur.
-  String _formatBasketMessage(BasketModel basket) {
+  ///
+  /// DESIGN.md gereği mesajda nokta isimleri, A/B koordinatları, A→B hedef
+  /// yönü ve (heading veriliyorsa) hesaplanan rotasyon yer alır.
+  /// [currentHeading] null ise rotasyon satırı "yön verisi yok" olur.
+  String formatBasketMessage(BasketModel basket, {double? currentHeading}) {
     final buffer = StringBuffer();
     buffer.writeln("📍 *[GÖL SEPET BİLGİSİ]*");
     buffer.writeln("🏷️ *Sepet Adı:* ${basket.name}");
     buffer.writeln("📅 *Tarih:* ${_formatDateTime(basket.startTimestamp)}");
-    buffer.writeln("🟢 *A Noktası (Başlangıç):*");
-    buffer.writeln("   Konum: `${basket.startLatitude.toStringAsFixed(6)}, ${basket.startLongitude.toStringAsFixed(6)}`");
+    buffer.writeln("🟢 *A (Başlangıç):* ${basket.startDisplayName}");
+    buffer.writeln("📍 *A Konum:* `${basket.startLatitude.toStringAsFixed(6)}, ${basket.startLongitude.toStringAsFixed(6)}`");
     buffer.writeln("   Harita: https://maps.google.com/?q=${basket.startLatitude},${basket.startLongitude}");
-    
+
     if (basket.isCompleted && basket.endLatitude != null && basket.endLongitude != null) {
-      buffer.writeln("🔴 *B Noktası (Bitiş):*");
-      buffer.writeln("   Konum: `${basket.endLatitude!.toStringAsFixed(6)}, ${basket.endLongitude!.toStringAsFixed(6)}`");
+      buffer.writeln("🔴 *B (Bitiş):* ${basket.endDisplayName}");
+      buffer.writeln("📍 *B Konum:* `${basket.endLatitude!.toStringAsFixed(6)}, ${basket.endLongitude!.toStringAsFixed(6)}`");
       buffer.writeln("   Harita: https://maps.google.com/?q=${basket.endLatitude},${basket.endLongitude}");
       buffer.writeln("📏 *Sepet Uzunluğu:* ~${basket.distanceInMeters.toStringAsFixed(1)} metre");
-      
+
+      final target = basket.initialBearing;
+      if (target != null) {
+        buffer.writeln("🧭 *Hedef Yön (A→B):* ${target.round()}°");
+      }
+      final rotation = basket.initialBearingFrom(currentHeading);
+      if (rotation != null) {
+        buffer.writeln("🔄 *Rotasyon:* ${_formatRotation(rotation)}");
+      } else {
+        buffer.writeln("🔄 *Rotasyon:* yön verisi yok");
+      }
+
       if (basket.endTimestamp != null) {
         final duration = basket.endTimestamp!.difference(basket.startTimestamp);
         buffer.writeln("⏱️ *Serim Süresi:* ${duration.inMinutes} dakika");
@@ -87,8 +111,18 @@ class ShareService {
     } else {
       buffer.writeln("⚠️ *B Noktası:* Henüz yerleştirilmedi.");
     }
-    
+
     return buffer.toString();
+  }
+
+  /// İşaretli rotasyon açısını Türkçe yön metnine çevirir.
+  /// Pozitif: saat yönü (sağa), negatif: saat yönünün tersi (sola).
+  String _formatRotation(double rotation) {
+    final rounded = rotation.round();
+    if (rounded == 0) return "0° (hedefe dönük)";
+    return rounded > 0
+        ? "$rounded° sağa"
+        : "${rounded.abs()}° sola";
   }
 
   String _formatDateTime(DateTime dt) {

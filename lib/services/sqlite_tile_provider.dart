@@ -18,7 +18,20 @@ class SqliteTileProvider extends TileProvider {
   final _cache = SqliteTileCacheService();
   final HttpClient _httpClient = HttpClient();
 
-  SqliteTileProvider() {
+  /// Son ağ denemesinin sonucunu bildirir: true = son ağ denemesi
+  /// başarısız (muhtemel çevrimdışı). Önbellekten okumalar bu değeri
+  /// değiştirmez; yalnızca ağ denemeleri günceller.
+  ///
+  /// Harita ekranı bu notifier'ı dinleyerek kullanıcıya "çevrimdışı:
+  /// yalnızca önbellekteki alanlar gösteriliyor" bilgisi verebilir.
+  /// (UI bağlaması ayrı görevde yapılacaktır.)
+  final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
+
+  /// Çevrimdışına ilk geçişte (false → true) bir kez tetiklenen
+  /// opsiyonel callback. Her hatalı tile için tekrar çağrılmaz.
+  final void Function()? onNetworkError;
+
+  SqliteTileProvider({this.onNetworkError}) {
     _httpClient.connectionTimeout = const Duration(seconds: 12);
   }
 
@@ -37,6 +50,8 @@ class SqliteTileProvider extends TileProvider {
       httpClient: _httpClient,
       tileUrlBuilder: (c, o) => getTileUrl(c, o),
       tileHeaders: headers,
+      offline: offline,
+      onNetworkError: onNetworkError,
     );
   }
 }
@@ -53,6 +68,8 @@ class _SqliteTileImageProvider
   final HttpClient httpClient;
   final String Function(TileCoordinates, TileLayer) tileUrlBuilder;
   final Map<String, String> tileHeaders;
+  final ValueNotifier<bool> offline;
+  final void Function()? onNetworkError;
 
   const _SqliteTileImageProvider({
     required this.coordinates,
@@ -61,6 +78,8 @@ class _SqliteTileImageProvider
     required this.httpClient,
     required this.tileUrlBuilder,
     required this.tileHeaders,
+    required this.offline,
+    this.onNetworkError,
   });
 
   @override
@@ -98,6 +117,7 @@ class _SqliteTileImageProvider
       tileHeaders.forEach((k, v) => request.headers.set(k, v));
       final response = await request.close();
       if (response.statusCode == 200) {
+        _reportOnline();
         final bytes = await response
             .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
         final data = Uint8List.fromList(bytes);
@@ -105,12 +125,27 @@ class _SqliteTileImageProvider
         unawaited(cache.saveTile(z, x, y, data));
         return await _decodeBytes(data, decode);
       }
+      _reportNetworkError();
     } catch (_) {
-      // Ağ hatası: boş tile döner
+      // Ağ hatası: boş tile döner, durumu dışarı bildir
+      _reportNetworkError();
     }
 
     // 3. Fallback: 1×1 şeffaf PNG
     return _decodeBytes(_kTransparentPng, decode);
+  }
+
+  /// Başarılı ağ yanıtı: çevrimdışı durumunu sıfırlar.
+  void _reportOnline() {
+    if (offline.value) offline.value = false;
+  }
+
+  /// Başarısız ağ denemesi: çevrimdışına geçişi bildirir.
+  void _reportNetworkError() {
+    if (!offline.value) {
+      offline.value = true;
+      onNetworkError?.call();
+    }
   }
 
   Future<ImageInfo> _decodeBytes(

@@ -106,7 +106,7 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                     const SizedBox(height: 4),
                     Text(
                       'Gece kullanımı için koyu temayı seçebilirsiniz.',
-                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                      style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                     ),
                     const SizedBox(height: 12),
                     SegmentedButton<String>(
@@ -183,7 +183,7 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                     const SizedBox(height: 4),
                     Text(
                       'Bu değerden daha yüksek sapmaya sahip konumlar sepet kaydında engellenir.',
-                      style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
+                      style: TextStyle(fontSize: 13, color: scheme.onSurfaceVariant),
                     ),
                     Slider(
                       value: _accuracyThreshold,
@@ -214,7 +214,7 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                               if (_cacheError)
                                 Text(
                                   'Önbellek bilgisi alınamadı.',
-                                  style: TextStyle(fontSize: 12, color: scheme.error),
+                                  style: TextStyle(fontSize: 13, color: scheme.error),
                                 )
                               else
                                 Text(
@@ -222,12 +222,16 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                                       ? 'Yükleniyor...'
                                       : '${_cacheStats!.tileCount} tile · ${_cacheStats!.formattedSize}',
                                   style: TextStyle(
-                                      fontSize: 12, color: scheme.onSurfaceVariant),
+                                      fontSize: 13, color: scheme.onSurfaceVariant),
                                 ),
                               Text(
-                                'Gezilen harita alanları otomatik kaydedilir.',
+                                'Sınır: en fazla '
+                                '${(SqliteTileCacheService.maxCacheBytes / (1024 * 1024)).toStringAsFixed(0)} MB / '
+                                '${SqliteTileCacheService.maxCacheAge.inDays} gün. '
+                                'Gezilen harita alanları otomatik kaydedilir; '
+                                'eski ve sınır aşan tile\'lar otomatik silinir.',
                                 style: TextStyle(
-                                    fontSize: 11, color: scheme.onSurfaceVariant),
+                                    fontSize: 13, color: scheme.onSurfaceVariant),
                               ),
                             ],
                           ),

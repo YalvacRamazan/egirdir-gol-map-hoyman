@@ -32,6 +32,10 @@
             android:value="2" />
     </application>
 
+    <!-- İnternet izni: OpenStreetMap tile indirme ve wa.me/WhatsApp bağlantıları için gereklidir.
+         Release derlemede de etkili olması için main manifest'te tanımlanır. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <!-- Konum izinleri: Kaba ve hassas konum için her ikisi de gereklidir -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
@@ -47,6 +51,20 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- WhatsApp paket görünürlüğü (API 30+ package visibility):
+             url_launcher canLaunchUrl'ın doğru sonuç döndürmesi için gereklidir. -->
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <!-- https://wa.me/... bağlantıları için VIEW intent sorgusu -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="https" android:host="wa.me"/>
+        </intent>
+        <!-- whatsapp:// özel şeması için VIEW intent sorgusu -->
+        <intent>
+            <action android:name="android.intent.action.VIEW"/>
+            <data android:scheme="whatsapp"/>
         </intent>
     </queries>
 </manifest>

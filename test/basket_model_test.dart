@@ -38,6 +38,71 @@ void main() {
       expect(decoded.isCompleted, basket.isCompleted);
     });
 
+    test('startName ve endName toMap/fromMap round-trip doğru çalışmalıdır', () {
+      final now = DateTime.now();
+      final basket = BasketModel(
+        id: 2,
+        name: 'Sepet #2',
+        startName: 'Kamp Girişi',
+        endName: 'Kamp Çıkışı',
+        startLatitude: 38.1000,
+        startLongitude: 30.9800,
+        endLatitude: 38.1100,
+        endLongitude: 30.9900,
+        startTimestamp: now,
+        endTimestamp: now.add(const Duration(minutes: 20)),
+        isCompleted: true,
+      );
+
+      final map = basket.toMap();
+      expect(map['start_name'], 'Kamp Girişi');
+      expect(map['end_name'], 'Kamp Çıkışı');
+
+      final decoded = BasketModel.fromMap(map);
+      expect(decoded.startName, 'Kamp Girişi');
+      expect(decoded.endName, 'Kamp Çıkışı');
+      expect(decoded.startDisplayName, 'Kamp Girişi');
+      expect(decoded.endDisplayName, 'Kamp Çıkışı');
+    });
+
+    test('Eski kayıtlarda start_name/end_name yoksa null okunmalıdır (fallback)', () {
+      // v1 şemasından gelen kayıt: yeni kolonlar map içinde yok
+      final legacyMap = {
+        'id': 3,
+        'name': 'Eski Sepet',
+        'start_latitude': 38.1000,
+        'start_longitude': 30.9800,
+        'end_latitude': 38.1100,
+        'end_longitude': 30.9900,
+        'start_timestamp': '2026-01-01T10:00:00.000',
+        'end_timestamp': '2026-01-01T10:15:00.000',
+        'is_completed': 1,
+      };
+
+      final decoded = BasketModel.fromMap(legacyMap);
+      expect(decoded.startName, isNull);
+      expect(decoded.endName, isNull);
+      // Atanmamış isimler varsayılan etiketle gösterilir
+      expect(decoded.startDisplayName, 'A Noktası');
+      expect(decoded.endDisplayName, 'B Noktası');
+    });
+
+    test('copyWith startName/endName alanlarını güncellemelidir', () {
+      final basket = BasketModel(
+        name: 'Sepet #4',
+        startLatitude: 38.1000,
+        startLongitude: 30.9800,
+        startTimestamp: DateTime.now(),
+      );
+
+      final updated = basket.copyWith(startName: 'Yeni A', endName: 'Yeni B');
+      expect(updated.startName, 'Yeni A');
+      expect(updated.endName, 'Yeni B');
+      // Diğer alanlar korunmalıdır
+      expect(updated.name, 'Sepet #4');
+      expect(updated.startLatitude, basket.startLatitude);
+    });
+
     test('Mesafe hesaplama (Haversine) doğru sonuç vermelidir', () {
       // Eğirdir Gölü civarında yaklaşık 500 metrelik iki nokta
       final basket = BasketModel(
