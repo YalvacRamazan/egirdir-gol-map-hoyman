@@ -2,14 +2,11 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
 
-/// Konum izni durumunu açıklayan sonuç sınıfı
 class LocationPermissionResult {
   final bool granted;
-  final String reason; // kullanıcıya gösterilecek açıklama
+  final String reason;
   final bool isPermanentlyDenied;
 
-  /// Platform konum servisini hiç desteklemiyor (ör. Linux/Windows masaüstü).
-  /// Bu durumda izin overlay'i gösterilmez; uygulama konumsuz modda çalışır.
   final bool isUnavailable;
 
   const LocationPermissionResult({
@@ -31,22 +28,13 @@ class LocationService {
   bool _isBoostMode = false;
   Stream<Position> get positionStream => _positionController.stream;
   bool get isBoostMode => _isBoostMode;
-  // accuracyThreshold doğrudan alan olarak tutulur (gereksiz getter/setter önlenir)
-  double accuracyThreshold = 15.0; // Varsayılan doğruluk eşiği (metre)
+  double accuracyThreshold = 15.0;
 
-  /// Konum izinlerini kontrol eder ve ister.
-  /// Detaylı sonuç için [checkAndRequestPermissionDetailed] kullanın.
   Future<bool> checkAndRequestPermission() async {
     final result = await checkAndRequestPermissionDetailed();
     return result.granted;
   }
 
-  /// Konum izinlerini kontrol eder; ret nedenini de döner.
-  ///
-  /// geolocator yalnızca Android/iOS/macOS/Web'i destekler; Linux/Windows
-  /// masaüstünde platform kanalı yoktur ve çağrılar MissingPluginException
-  /// fırlatır. Bu durumda hata yerine [LocationPermissionResult.isUnavailable]
-  /// ile konumsuz mod sinyallenir.
   Future<LocationPermissionResult> checkAndRequestPermissionDetailed() async {
     try {
       bool serviceEnabled;
@@ -92,7 +80,6 @@ class LocationService {
     }
   }
 
-  /// Konum takibini başlatır.
   void startTracking({bool boostMode = false}) {
     _isBoostMode = boostMode;
     _positionStreamSubscription?.cancel();
@@ -111,47 +98,38 @@ class LocationService {
     );
   }
 
-  /// Konum takibini durdurur.
   void stopTracking() {
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
   }
 
-  /// Boost Modunu (Yüksek Hassasiyet) açar veya kapatır.
   void toggleBoostMode(bool enable) {
     if (_isBoostMode == enable) return;
     _isBoostMode = enable;
     
-    // Aktif takip varsa yeni ayarlarla yeniden başlatır
     if (_positionStreamSubscription != null) {
       startTracking(boostMode: _isBoostMode);
     }
   }
 
-  /// Ayarları Boost veya Normal moduna göre belirler.
-  /// Not: timeLimit kullanılmıyor, aksi takdirde stream sürekli kapanıp yeniden açılır.
   LocationSettings _getSettings() {
     if (_isBoostMode) {
-      // J7 Prime için maksimum hassasiyet, sürekli güncelleme (Güç tüketimi yüksektir)
       return const LocationSettings(
         accuracy: LocationAccuracy.best,
-        distanceFilter: 0, // Her hareketi algıla
+        distanceFilter: 0,
       );
     } else {
-      // Normal/Pil Tasarrufu modu
       return const LocationSettings(
         accuracy: LocationAccuracy.medium,
-        distanceFilter: 5, // 5 metrede bir güncelle
+        distanceFilter: 5,
       );
     }
   }
 
-  /// Konumun doğruluk değerinin kabul edilebilir olup olmadığını kontrol eder.
   bool isAccuracyAcceptable(Position position) {
     return position.accuracy <= accuracyThreshold;
   }
 
-  /// Cihazın anlık tek seferlik konumunu alır.
   Future<Position> getCurrentPosition({bool forceHighAccuracy = false}) async {
     final accuracy = (forceHighAccuracy || _isBoostMode)
         ? LocationAccuracy.best
@@ -161,9 +139,6 @@ class LocationService {
     );
   }
 
-  /// Singleton örnekte broadcast controller kapatılmaz; aksi halde dispose
-  /// sonrası [_positionController.add] StateError fırlatır. Yalnızca GPS
-  /// aboneliği iptal edilir, stream yeni dinleyiciler için açık kalır.
   void dispose() {
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;

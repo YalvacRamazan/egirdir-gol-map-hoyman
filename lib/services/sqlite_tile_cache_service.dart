@@ -6,57 +6,28 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
 
-/// Harita tile'larını SQLite veritabanında önbelleğe alan servis.
-///
-/// Tile'lar ekrana geldiğinde otomatik indirilip kaydedilir.
-/// Bir sonraki açılışta (offline dahil) doğrudan bu DB'den okunur.
-///
-/// Önbellek sınırları (sabit; ayar ekranından değiştirilmez):
-///   - [maxCacheBytes] = 50 MB toplam disk kullanımı
-///   - [maxCacheAge]   = 30 gün tile yaşı
-///
-/// [saveTile] her kayıttan sonra [evictIfNeeded]'i tetikler:
-///   1. Yaşı [maxCacheAge]'i aşan tile'lar silinir.
-///   2. Toplam boyut hâlâ [maxCacheBytes]'i aşıyorsa en eski yazılandan
-///      başlayarak sınırın altına inene kadar silinir (LRU-benzeri).
-///
-/// Tasarım notları:
-///   - Okuma ([getTile]) sırasında timestamp güncellenmez: her okumada
-///     yazma, düşük donanımda gereksiz I/O yüküdür. "Son erişim" yerine
-///     "son yazma" zamanı kullanılır; yeniden indirilen tile'lar
-///     (ConflictAlgorithm.replace ile upsert) taze sayılır.
-///   - Silme sonrası VACUUM çalıştırılmaz: SQLite boşalan sayfaları
-///     yeniden kullanır; VACUUM düşük donanımda pahalı ve uzundur.
-///   - v1 migration'ından gelen satırlar timestamp=0 ile işaretlenir ve
-///     ilk eviction'da "en eski" olarak temizlenir.
 class SqliteTileCacheService {
   static final SqliteTileCacheService _instance =
       SqliteTileCacheService._internal();
   factory SqliteTileCacheService() => _instance;
   SqliteTileCacheService._internal();
 
-  /// Önbellek disk sınırı: 50 MB.
   static const int maxCacheBytes = 50 * 1024 * 1024;
 
-  /// Tile yaş sınırı: 30 gün.
   static const Duration maxCacheAge = Duration(days: 30);
 
   static const int _dbVersion = 2;
 
   Database? _db;
 
-  /// Yazma işlemlerini sıraya alan basit kilit: save+evict akışının
-  /// yarış koşulu olmadan sıralı yürütülmesini sağlar.
   Future<void> _writeQueue = Future.value();
 
-  /// Eşzamanlı eviction çalıştırmasını önleyen bayrak.
   bool _evictionInProgress = false;
 
   bool get isReady => _db != null;
 
-  /// Veritabanını başlatır. ViewModel.init() içinde çağrılır.
   Future<void> init() async {
-    if (kIsWeb) return; // Web'de sqflite desteklenmez
+    if (kIsWeb) return;
     if (_db != null) return;
 
     try {
@@ -80,10 +51,6 @@ class SqliteTileCacheService {
           ''');
         },
         onUpgrade: (db, oldVersion, newVersion) async {
-          // v1 → v2: timestamp ve size kolonları eklenir.
-          // v1 satırlarında yazma zamanı bilinmediği için timestamp=0
-          // (en eski → ilk eviction'da temizlenir), size ise blob
-          // uzunluğuyla doldurulur.
           if (oldVersion < 2) {
             await db.execute(
                 'ALTER TABLE tiles ADD COLUMN timestamp INTEGER NOT NULL DEFAULT 0');
@@ -94,12 +61,10 @@ class SqliteTileCacheService {
         },
       );
     } catch (_) {
-      // Hata durumunda cache devre dışı kalır; uygulama normal çalışır.
       _db = null;
     }
   }
 
-  /// Önbellekte kayıtlı tile byte'larını döner. Yoksa null döner (cache miss).
   Future<Uint8List?> getTile(int zoom, int x, int y) async {
     if (_db == null) return null;
     try {
@@ -117,11 +82,6 @@ class SqliteTileCacheService {
     }
   }
 
-  /// İndirilen tile'ı önbelleğe kaydeder ve ardından [evictIfNeeded]'i
-  /// çalıştırır.
-  ///
-  /// Aynı tile tekrar yazılırsa satır REPLACE edilir; böylece timestamp
-  /// güncellenir ve tile "taze" sayılır (LRU-benzeri davranış).
   Future<void> saveTile(int zoom, int x, int y, Uint8List data) {
     if (_db == null) return Future.value();
     return _enqueue(() async {
@@ -139,24 +99,17 @@ class SqliteTileCacheService {
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
       } catch (_) {
-        // Yazma hatası: yoksay
       }
       await evictIfNeeded();
     });
   }
 
-  /// Yazma işlemlerini sıraya alır; kuyruk hata sonrası da ilerlemeye
-  /// devam eder.
   Future<T> _enqueue<T>(Future<T> Function() task) {
     final run = _writeQueue.then((_) => task());
     _writeQueue = run.then((_) {}, onError: (_) {});
     return run;
   }
 
-  /// Önbellek sınırlarını denetler ve gereken tile'ları siler.
-  ///
-  /// Seçim mantığı saf fonksiyon [selectTileIdsToEvict]'te yer alır;
-  /// bu metot yalnızca DB okuma/silme işlemlerini yürütür.
   Future<void> evictIfNeeded() async {
     final db = _db;
     if (db == null) return;
@@ -174,7 +127,6 @@ class SqliteTileCacheService {
       );
       if (ids.isEmpty) return;
 
-      // Silme işlemini parçalara bölerek tek dev sorguyu önle.
       const chunkSize = 256;
       for (var i = 0; i < ids.length; i += chunkSize) {
         final chunk = ids.skip(i).take(chunkSize).toList();
@@ -185,14 +137,11 @@ class SqliteTileCacheService {
         );
       }
     } catch (_) {
-      // Eviction hatası: yoksay; önbellek çalışmaya devam eder.
     } finally {
       _evictionInProgress = false;
     }
   }
 
-  /// Önbellek istatistiklerini döner: tile sayısı, toplam boyut (byte)
-  /// ve en eski/en yeni tile yazma zamanları (ms epoch; boş önbellekte null).
   Future<CacheStats> getStats() async {
     if (_db == null) return const CacheStats(tileCount: 0, sizeBytes: 0);
     try {
@@ -215,7 +164,6 @@ class SqliteTileCacheService {
     }
   }
 
-  /// Tüm tile önbelleğini temizler.
   Future<void> clearAll() async {
     if (_db == null) return;
     try {
@@ -223,22 +171,17 @@ class SqliteTileCacheService {
     } catch (_) {}
   }
 
-  /// Veritabanı bağlantısını kapatır.
   Future<void> close() async {
     await _db?.close();
     _db = null;
   }
 }
 
-/// Eviction kararları için bir tile'ın minimum meta verisi.
 class TileMeta {
-  /// SQLite rowid.
   final int id;
 
-  /// Son yazma zamanı (ms epoch). v1 migration satırlarında 0.
   final int timestamp;
 
-  /// Blob byte uzunluğu.
   final int size;
 
   const TileMeta({
@@ -254,16 +197,6 @@ class TileMeta {
       );
 }
 
-/// Eviction seçim mantığı (saf fonksiyon; DB'ye bağımsız, test edilebilir).
-///
-/// Kurallar sırayla uygulanır:
-///   1. Yaş aşımı: `timestamp < now - maxAge` olan tile'lar silinir.
-///   2. Boyut aşımı: kalan tile'ların toplam boyutu `maxBytes`'i aşarsa,
-///      en eski yazılandan başlayarak toplam sınırın altına inene kadar
-///      silinir.
-///
-/// Dönen liste silinecek tile id'leridir; her iki grup da en eskiden
-/// yeniye timestamp sırasıyla döner.
 List<int> selectTileIdsToEvict(
   List<TileMeta> tiles,
   int maxBytes,
@@ -301,15 +234,12 @@ List<int> selectTileIdsToEvict(
   ];
 }
 
-/// Önbellek istatistik modeli.
 class CacheStats {
   final int tileCount;
   final int sizeBytes;
 
-  /// En eski tile'ın yazılma zamanı (ms epoch). Boş önbellekte null.
   final int? oldestTimestamp;
 
-  /// En yeni tile'ın yazılma zamanı (ms epoch). Boş önbellekte null.
   final int? newestTimestamp;
 
   const CacheStats({
@@ -319,7 +249,6 @@ class CacheStats {
     this.newestTimestamp,
   });
 
-  /// Boyutu okunabilir formatta döner.
   String get formattedSize {
     if (sizeBytes == 0) return '0 KB';
     if (sizeBytes < 1024 * 1024) {

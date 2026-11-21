@@ -6,17 +6,21 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:map/models/basket_model.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
-import 'package:map/services/sqlite_tile_provider.dart';
 import 'package:map/theme/palette.dart';
 import 'package:map/utils/bearing.dart';
+import 'package:map/utils/time_format.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 import 'package:map/views/ayarlar_ekran.dart';
 import 'package:map/views/katalog_sayfasi.dart';
+import 'package:map/widgets/distance_gauge.dart';
+import 'package:map/widgets/status_widgets.dart';
 
-/// Hoyman Gölü merkezi: uygulama açılışında gösterilecek varsayılan konum
 const LatLng _kHoymanGoluMerkezi = LatLng(38.10, 30.98);
+
+const double _kFallbackSpeedMps = 2.0;
 
 class HaritaEkran extends StatefulWidget {
   const HaritaEkran({super.key});
@@ -30,18 +34,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
 
-  /// Tile provider yalnızca bir kez oluşturulur; her rebuild'de yeni bir
-  /// HttpClient kurulup eskisinin atılmasını (kaynak churn) önler.
-  final SqliteTileProvider _tileProvider = SqliteTileProvider();
+  final TileProvider _tileProvider = NetworkTileProvider();
 
-  /// Aynı karede birden fazla ölçüm planlamasını önleyen guard
   bool _isMeasureScheduled = false;
 
-  /// Alt panelin gerçek yüksekliğini ölçmek için (FAB çakışmasını önler)
   final GlobalKey _bottomPanelKey = GlobalKey();
   double _bottomPanelHeight = 0;
 
-  /// Harita yalnızca bir kez otomatik kullanıcı konumuna taşınır
   bool _hasMovedToPosition = false;
 
   @override
@@ -49,7 +48,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     super.initState();
     _viewModel.addListener(_onViewModelChanged);
     _viewModel.init().then((_) {
-      // init() tamamlandıktan sonra "devam eden kayıt" kontrolü yap
       if (mounted && _viewModel.activeBasket != null) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           _showResumeRecordingDialog();
@@ -58,7 +56,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     });
   }
 
-  /// ViewModel değiştiğinde haritayı ilk konuma yönlendir (yalnızca bir kez)
   void _onViewModelChanged() {
     if (!_hasMovedToPosition && _viewModel.hasInitialPosition &&
         _viewModel.currentPosition != null) {
@@ -77,12 +74,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
     super.dispose();
   }
 
-  /// Haritayı belirli bir konuma odaklar
   void _focusOnLocation(LatLng point, double zoom) {
     _mapController.move(point, zoom);
   }
 
-  /// Alt panelin yüksekliğini ölçer ve FAB konumunu günceller.
   void _measureBottomPanel() {
     final ctx = _bottomPanelKey.currentContext;
     if (ctx == null) return;
@@ -92,8 +87,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     }
   }
 
-  /// Alt panel ölçümünü bir sonraki kareye planlar.
-  /// Aynı karedeki tekrarlanan build'lerde yalnızca tek callback kaydedilir.
   void _scheduleBottomPanelMeasure() {
     if (_isMeasureScheduled) return;
     _isMeasureScheduled = true;
@@ -113,16 +106,18 @@ class _HaritaEkranState extends State<HaritaEkran> {
             ? LatLng(currentPos.latitude, currentPos.longitude)
             : _kHoymanGoluMerkezi;
 
-        // Haritada gösterilecek aktif veya seçili sepet
         final showBasket = _viewModel.selectedBasket ?? _viewModel.activeBasket;
 
-        // Panel yüksekliği değiştiyse bir sonraki karede yeniden ölç
+        final basketDistance = showBasket != null
+            ? _distanceToBasket(showBasket, currentPos)
+            : null;
+        final estimatedArrival = _estimateArrival(basketDistance, currentPos);
+
         _scheduleBottomPanelMeasure();
 
         return Scaffold(
           body: Stack(
             children: [
-              // --- 1. HARİTA KATMANI (Tile, Polyline, Circle, Marker) ---
               FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
@@ -130,14 +125,9 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   initialZoom: 12.0,
                   maxZoom: 18.0,
                   minZoom: 6.0,
-                  // Seçim modu aktifken dokunulan nokta A/B olarak alınır;
-                  // mod yoksa dokunuş serbest kaydırma/zoom olarak davranır.
                   onTap: (tapPosition, point) => _onMapTap(point),
                 ),
                 children: [
-                  // Harita Altlığı (Tile Layer) - SQLite Önbellek Desteği ile
-                  // Görüntülenen tile'lar otomatik indirilip SQLite'a kaydedilir.
-                  // Bir sonraki açılışta (offline dahil) doğrudan SQLite'tan okunur.
                   TileLayer(
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
@@ -145,15 +135,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     tileProvider: _tileProvider,
                   ),
 
-                  // GPS Doğruluk Çemberi (Sadece GPS aktifse çizilir)
                   if (currentPos != null)
                     CircleLayer(
                       circles: [
                         CircleMarker(
                           point: userLatLng,
-                          radius: currentPos.accuracy, // Metre cinsinden doğruluk yarıçapı
+                          radius: currentPos.accuracy,
                           useRadiusInMeter: true,
-                          // İyi doğruluk birincil, zayıf doğruluk uyarı vurgusudur.
                           color: _viewModel.isGpsAccuracyGood
                               ? Palette.primary.withValues(alpha: 0.15)
                               : Palette.accentWarning.withValues(alpha: 0.15),
@@ -165,7 +153,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       ],
                     ),
 
-                  // Sepet Çizgisi (A -> B Arasındaki Çizgi)
                   if (showBasket != null &&
                       showBasket.endLatitude != null &&
                       showBasket.endLongitude != null)
@@ -184,10 +171,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       ],
                     ),
 
-                  // İşaretçiler (User, A Noktası, B Noktası)
                   MarkerLayer(
                     markers: [
-                      // Kullanıcı Konumu İşaretçisi (heading varsa yön okuyla)
                       if (currentPos != null)
                         Marker(
                           point: userLatLng,
@@ -200,7 +185,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                             child: Stack(
                               alignment: Alignment.center,
                               children: [
-                                // Baktığı yön oku: heading'e göre döner (0°=K, saat yönü)
                                 if (_viewModel.currentHeading != null)
                                   Transform.rotate(
                                     angle: _viewModel.currentHeading! *
@@ -239,7 +223,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           ),
                         ),
 
-                      // Sepet Başlangıç (A) Noktası
                       if (showBasket != null)
                         Marker(
                           point: LatLng(showBasket.startLatitude,
@@ -248,7 +231,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           height: 64,
                           alignment: Alignment.topCenter,
                           child: GestureDetector(
-                            // Marker'a dokunmak isim düzenlemeyi açar
                             onTap: () => _promptPointName(
                               isStart: true,
                               initialName: showBasket.startName,
@@ -279,7 +261,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           ),
                         ),
 
-                      // Sepet Bitiş (B) Noktası
                       if (showBasket != null &&
                           showBasket.endLatitude != null &&
                           showBasket.endLongitude != null)
@@ -290,7 +271,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           height: 64,
                           alignment: Alignment.topCenter,
                           child: GestureDetector(
-                            // Marker'a dokunmak isim düzenlemeyi açar
                             onTap: () => _promptPointName(
                               isStart: false,
                               initialName: showBasket.endName,
@@ -323,9 +303,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     ],
                   ),
 
-                  // --- 1.5 OSM ATIF BİLGİSİ ---
-                // DESIGN.md gereği harita üzerinde görünür olmalı.
-                // Tıklanınca OSM telif sayfası açılır.
                 RichAttributionWidget(
                   showFlutterMapAttribution: false,
                   attributions: [
@@ -341,14 +318,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
               ],
             ),
 
-            // --- 2. ÜST BİLGİ VE KONTROL PANELİ ---
               Positioned(
                 top: MediaQuery.of(context).padding.top + 10,
                 left: 12,
                 right: 12,
                 child: Row(
                   children: [
-                    // GPS Durum Kartı
                     Expanded(
                       child: Card(
                         elevation: 4,
@@ -382,7 +357,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       ),
                     ),
                     const SizedBox(width: 8),
-                    // GPS Boost Düğmesi (J7 Prime için hassas mod)
                     _buildRoundButton(
                       icon: Icons.flash_on,
                       color: _viewModel.isBoostMode
@@ -405,7 +379,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       },
                     ),
                     const SizedBox(width: 8),
-                    // Katalog Düğmesi
                     _buildRoundButton(
                       icon: Icons.list_alt,
                       color: Palette.primary,
@@ -425,7 +398,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       },
                     ),
                     const SizedBox(width: 8),
-                    // Ayarlar Düğmesi
                     _buildRoundButton(
                       icon: Icons.settings,
                       color: Palette.neutralStrong,
@@ -445,65 +417,40 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
               ),
 
-              // --- 2.5 ÇEVRİMDIŞI ROZETİ ---
-              // Tile provider'ın offline durumunu dinler: yalnızca ağ
-              // denemesi başarısız olduğunda görünür, başarılı yüklemede
-              // kaybolur. IgnorePointer sayesinde rozet harita kaydırma ve
-              // zoom jestlerini engellemez.
               Positioned(
-                top: MediaQuery.of(context).padding.top + 56,
-                left: 12,
-                right: 12,
-                child: ValueListenableBuilder<bool>(
-                  valueListenable: _tileProvider.offline,
-                  builder: (context, isOffline, _) {
-                    if (!isOffline) return const SizedBox.shrink();
-                    return IgnorePointer(
-                      child: Center(
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 6),
-                          decoration: BoxDecoration(
-                            // Vurgu rengi: çevrimdışı bir uyarı durumudur
-                            // (DESIGN.md R-29). Beyaz metinle WCAG AA geçer.
-                            color: Palette.accentWarning,
-                            borderRadius: BorderRadius.circular(16),
+                top: MediaQuery.of(context).padding.top + 62,
+                left: 0,
+                right: 0,
+                child: SizedBox(
+                  height: 36,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    child: Row(
+                      children: [
+                        const LiveClockChip(),
+                        if (estimatedArrival != null) ...[
+                          const SizedBox(width: 8),
+                          StatusPill(
+                            icon: Icons.schedule,
+                            text:
+                                'Varış ~${formatHourMinute(estimatedArrival)}',
                           ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.wifi_off,
-                                  color: Colors.white, size: 16),
-                              SizedBox(width: 6),
-                              Text(
-                                'Çevrimdışı: önbellekteki alanlar gösteriliyor',
-                                style: TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    );
-                  },
+                        ],
+                      ],
+                    ),
+                  ),
                 ),
               ),
 
-              // --- 2.6 NOKTA SEÇİM YÖNERGESİ (seçim modu aktifken) ---
               if (_viewModel.selectionMode != MapPointSelectionMode.none)
                 Positioned(
-                  top: MediaQuery.of(context).padding.top + 96,
+                  top: MediaQuery.of(context).padding.top + 104,
                   left: 12,
                   right: 12,
                   child: _buildSelectionBanner(context),
                 ),
 
-              // --- 2.7 YÖN OKU (konum yoksa harita merkezinde) ---
-              // GPS konumu yokken baktığı yön oku merkezde "Yön" etiketiyle
-              // gösterilir; yanıltıcı konum iması yapılmaz.
               if (_viewModel.currentHeading != null && currentPos == null)
                 Positioned.fill(
                   child: IgnorePointer(
@@ -548,15 +495,20 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   ),
                 ),
 
-              // --- 2.8 CANLI PUSULA / SENSÖR DURUMU (sol alt) ---
-              // FAB ve A/B butonları sağda olduğu için sol alt köşe çakışmaz.
               Positioned(
                 bottom: _getBottomOffset(),
                 left: 16,
                 child: _buildCompassOverlay(context),
               ),
 
-              // --- 3. HARİTA KONTROL ARAÇLARI (Konumuma Git) ---
+              if (basketDistance != null &&
+                  _viewModel.selectionMode == MapPointSelectionMode.none)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top + 112,
+                  left: 12,
+                  child: DistanceGauge(distanceMeters: basketDistance),
+                ),
+
               Positioned(
                 bottom: _getBottomOffset(),
                 right: 16,
@@ -578,7 +530,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
               ),
 
-              // --- 3.5 NOKTA SEÇİM KONTROLLERİ (A/B) ---
               Positioned(
                 bottom: _getBottomOffset() + 64,
                 right: 16,
@@ -612,7 +563,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
               ),
 
-              // --- 4. ALT KONTROL PANELLERİ (Durumsal Alt Sayfalar) ---
               Positioned(
                 bottom: 0,
                 left: 0,
@@ -623,15 +573,11 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 ),
               ),
 
-              // --- 5. İZİN YOKSA BİLGİLENDİRME OVERLAY'İ ---
-              // Konum hiç desteklenmiyorsa (Linux/Windows masaüstü) overlay
-              // gösterilmez; "Yeniden Dene" bu durumda işe yaramaz.
               if (!_viewModel.isInitializing &&
                   !_viewModel.isPermissionGranted &&
                   !_viewModel.isLocationUnavailable)
                 _buildPermissionOverlay(context),
 
-              // --- 6. BAŞLANGIÇ YÜKLEME OVERLAY'İ ---
               if (_viewModel.isInitializing)
                 Container(
                   color: Colors.black.withValues(alpha: 0.35),
@@ -660,8 +606,25 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// GPS durum kartındaki ikon rengi (hata / iyi / zayıf).
-  /// Hata ve zayıf doğruluk uyarı vurgusunu, iyi doğruluk birincili kullanır.
+  double? _distanceToBasket(BasketModel basket, Position? pos) {
+    if (pos == null) return null;
+    if (basket.isCompleted &&
+        basket.endLatitude != null &&
+        basket.endLongitude != null) {
+      return basket.distanceToLine(pos.latitude, pos.longitude);
+    }
+    return basket.distanceToStart(pos.latitude, pos.longitude);
+  }
+
+  DateTime? _estimateArrival(double? distanceMeters, Position? pos) {
+    if (distanceMeters == null) return null;
+    final speed = pos?.speed ?? 0;
+    final effectiveSpeed =
+        (speed.isFinite && speed > 0.5) ? speed : _kFallbackSpeedMps;
+    final seconds = (distanceMeters / effectiveSpeed).round();
+    return DateTime.now().add(Duration(seconds: seconds));
+  }
+
   Color _gpsStatusColor(BuildContext context) {
     final brightness = Theme.of(context).brightness;
     if (_viewModel.isGpsAccuracyGood) {
@@ -670,10 +633,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
     return Palette.accentWarningFor(brightness);
   }
 
-  /// İzin reddedildiğinde harita üzerinde gösterilen bilgilendirme paneli
   Widget _buildPermissionOverlay(BuildContext context) {
-    // Koyu turuncu zemin + beyaz metin: WCAG AA kontrastını geçer.
-    const overlayColor = Palette.accentWarning; // deepOrange.shade900
+    const overlayColor = Palette.accentWarning;
     return Positioned(
       bottom: 0,
       left: 0,
@@ -719,7 +680,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       padding: const EdgeInsets.symmetric(vertical: 12),
                     ),
                     onPressed: () async {
-                      // İzni yeniden iste
                       final result = await _viewModel.retryPermission();
                       if (!result && context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -758,7 +718,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Uygulama yeniden açıldığında devam eden kayıt varsa kullanıcıya sor
   void _showResumeRecordingDialog() {
     if (!mounted) return;
     final active = _viewModel.activeBasket;
@@ -801,13 +760,10 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Alt panelin ölçülen yüksekliğine göre FAB konumunu döner.
   double _getBottomOffset() {
     return _bottomPanelHeight + 16;
   }
 
-  /// Sol alttaki pusula/sensör-durum overlay'i.
-  /// Sensör varsa canlı pusula kadranı, yoksa uyarı rozeti gösterir.
   Widget _buildCompassOverlay(BuildContext context) {
     final heading = _viewModel.currentHeading;
     if (heading != null) {
@@ -819,8 +775,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     return const SizedBox.shrink();
   }
 
-  /// Sabit kadranlı (K/G/D/B) + dönen ibreli kompakt pusula.
-  /// Sonsuz animasyon yok: Transform.rotate yalnızca heading değişince güncellenir.
   Widget _buildCompassDial(BuildContext context, double heading) {
     final headingRad = heading * math.pi / 180;
     final scheme = Theme.of(context).colorScheme;
@@ -841,7 +795,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
           child: Stack(
             children: [
-              // Sabit kadran etiketleri: K üst, D sağ, G sol, B alt
               const Positioned(
                 top: 3,
                 left: 0,
@@ -884,7 +837,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           fontSize: 13, fontWeight: FontWeight.bold)),
                 ),
               ),
-              // Dönen ibre: cihazın baktığı yönü gösterir
               Center(
                 child: Transform.rotate(
                   angle: headingRad,
@@ -899,7 +851,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
         ),
         const SizedBox(height: 4),
-        // Anlık yön harfi (K/D/G/B)
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
           decoration: BoxDecoration(
@@ -920,7 +871,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Sensör kullanılamadığında gösterilen uyarı rozeti (DESIGN.md: #BF360C).
   Widget _buildCompassUnavailableBadge() {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -949,8 +899,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Hedef yön (A→B) ve gerekli dönüş açısı kartı.
-  /// Hedef yön heading olmadan da gösterilir; dönüş yalnızca heading varken.
   Widget _buildBearingCard(BuildContext context) {
     final targetBearing = _viewModel.targetBearing;
     if (targetBearing == null) return const SizedBox.shrink();
@@ -979,7 +927,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
       ),
       child: Row(
         children: [
-          // Hedef yön oku (A→B): kullanıcının yön okundan bağımsız, farklı renk
           Transform.rotate(
             angle: targetRad,
             child: Icon(
@@ -1036,8 +983,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Harita dokunuşu: seçim modu aktifse dokunulan nokta A/B olur,
-  /// ardından nokta adı sorulur. Mod yoksa hiçbir şey yapılmaz.
   void _onMapTap(LatLng point) {
     switch (_viewModel.selectionMode) {
       case MapPointSelectionMode.selectA:
@@ -1059,7 +1004,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     }
   }
 
-  /// A/B seçim modunu başlatır. B için aktif (yarım) sepet gerekir.
   void _startSelection({required bool isStart}) {
     if (!isStart && _viewModel.activeBasket == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1077,8 +1021,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     }
   }
 
-  /// Nokta adı soran dialog. Boş bırakılırsa varsayılan ad ("A Noktası" /
-  /// "B Noktası") kullanılır. İptal edilirse seçim modu kapatılır.
   void _promptPointName({
     required bool isStart,
     String? initialName,
@@ -1121,15 +1063,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
       ),
     ).whenComplete(() {
       controller.dispose();
-      // Onayda setPointA/B modu zaten kapatır; burada yalnızca iptal kapatır
       if (_viewModel.selectionMode != MapPointSelectionMode.none) {
         _viewModel.cancelSelection();
       }
     });
   }
 
-  /// Harita üzerindeki marker altında gösterilen nokta adı etiketi.
-  /// Beyaz zemin + koyu renk metin: her harita tonunda WCAG AA geçer.
   Widget _buildMarkerNameLabel(String name, Color color) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
@@ -1152,9 +1091,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Harita kenarındaki A/B nokta seçim düğmesi (48px dokunma hedefi).
-  /// Aktif modda dolu anlamsal renk + beyaz metin (rozet kalıbı), pasifte
-  /// temaya uygun kenarlık/ikon rengi gösterir.
   Widget _buildPointSelectButton({
     required String letter,
     required IconData icon,
@@ -1199,7 +1135,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Seçim modu aktifken haritanın üstünde gösterilen yönerge bandı.
   Widget _buildSelectionBanner(BuildContext context) {
     final isSelectingA =
         _viewModel.selectionMode == MapPointSelectionMode.selectA;
@@ -1244,7 +1179,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     );
   }
 
-  /// Alt paneldeki A/B nokta adı rozeti; dokununca isim düzenleme açılır.
   Widget _buildPointNameChip({
     required String label,
     required IconData icon,
@@ -1291,7 +1225,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
     final scheme = Theme.of(context).colorScheme;
     final brightness = scheme.brightness;
 
-    // 1. Durum: Aktif bir kayıt süreci var (A noktası alındı, B bekleniyor)
     if (_viewModel.activeBasket != null) {
       final active = _viewModel.activeBasket!;
       double distToStart = 0;
@@ -1322,7 +1255,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
               ],
             ),
             const SizedBox(height: 4),
-            // A noktası adı + düzenleme
             Row(
               children: [
                 const Icon(Icons.location_on,
@@ -1407,7 +1339,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
       );
     }
 
-    // 2. Durum: Katalogdan bir sepet seçilmiş (Detay Görünümü)
     if (_viewModel.selectedBasket != null) {
       final selected = _viewModel.selectedBasket!;
       double? distToStart;
@@ -1451,7 +1382,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
               ],
             ),
             const SizedBox(height: 4),
-            // A/B nokta adları (dokununca düzenleme diyaloğu açılır)
             Row(
               children: [
                 Expanded(
@@ -1503,10 +1433,8 @@ class _HaritaEkranState extends State<HaritaEkran> {
               ],
               if (distToStart != null && distToEnd != null) ...[
                 const SizedBox(height: 8),
-                // Anlık mesafe kartları: her konum güncellemesinde otomatik yenilenir
                 Row(
                   children: [
-                    // A Noktasına Anlık Mesafe
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -1547,7 +1475,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       ),
                     ),
                     const SizedBox(width: 10),
-                    // B Noktasına Anlık Mesafe
                     Expanded(
                       child: Container(
                         padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
@@ -1635,7 +1562,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
       );
     }
 
-    // 3. Durum: Varsayılan Durum (Kayıt yok, seçim yok -> Yeni Sepet Başlatma)
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: _bottomPanelDecoration(context),
@@ -1792,7 +1718,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
           ),
         ],
       ),
-      // Dialog kapandığında (İptal / Başlat / dışarı tık) controller'ları serbest bırak
     ).whenComplete(() {
       nameController.dispose();
       startNameController.dispose();
@@ -1800,7 +1725,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
   }
 
   Future<void> _stopRecording(BuildContext context) async {
-    // B noktası adını sor; boş bırakılırsa varsayılan ("B Noktası") kullanılır
     final endNameController = TextEditingController();
     final endName = await showDialog<String>(
       context: context,
@@ -1833,7 +1757,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
       ),
     ).whenComplete(endNameController.dispose);
 
-    if (endName == null || !context.mounted) return; // İptal edildi
+    if (endName == null || !context.mounted) return;
 
     final completed =
         await _viewModel.stopRecordingBasket(endName: endName);
@@ -1844,7 +1768,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 '${completed.name} bitiş (B) noktası kaydedildi.')),
       );
 
-      // Otomatik paylaşım teklifi / yönlendirmesi
       showDialog(
         context: context,
         builder: (context) => AlertDialog(

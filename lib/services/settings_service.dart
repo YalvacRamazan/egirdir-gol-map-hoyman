@@ -8,7 +8,7 @@ import 'package:path/path.dart' as p;
 class AppSettings {
   String backupPhoneNumber;
   double gpsAccuracyThreshold;
-  String themeMode; // 'light' | 'dark' | 'system'
+  String themeMode;
 
   AppSettings({
     this.backupPhoneNumber = '',
@@ -39,7 +39,6 @@ class SettingsService {
   AppSettings _settings = AppSettings();
   AppSettings get settings => _settings;
 
-  /// Tema modu değiştiğinde MaterialApp'i yeniden kurar.
   final ValueNotifier<ThemeMode> themeModeNotifier =
       ValueNotifier<ThemeMode>(ThemeMode.system);
 
@@ -47,7 +46,6 @@ class SettingsService {
 
   Future<void> init() async {
     if (kIsWeb) {
-      // Web için varsayılan ayarları kullan (bellek içi)
       _settings = AppSettings();
       themeModeNotifier.value = _parseThemeMode(_settings.themeMode);
       return;
@@ -65,7 +63,6 @@ class SettingsService {
         await saveSettings(_settings);
       }
     } catch (e) {
-      // Hata durumunda varsayılan ayarlarla devam et
       debugPrint('SettingsService init: ayarlar okunamadı, varsayılana dönüldü: $e');
     }
     themeModeNotifier.value = _parseThemeMode(_settings.themeMode);
@@ -74,13 +71,12 @@ class SettingsService {
   Future<void> saveSettings(AppSettings newSettings) async {
     _settings = newSettings;
     themeModeNotifier.value = _parseThemeMode(newSettings.themeMode);
-    if (kIsWeb) return; // Web için bellekte güncellemek yeterli
+    if (kIsWeb) return;
 
     if (_settingsFile != null) {
       try {
         await _settingsFile!.writeAsString(jsonEncode(_settings.toJson()));
       } catch (e) {
-        // Hata durumunu yoksay
         debugPrint('SettingsService saveSettings: ayarlar diske yazılamadı: $e');
       }
     }

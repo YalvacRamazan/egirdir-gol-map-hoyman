@@ -9,12 +9,10 @@ class DatabaseService {
   DatabaseService._internal();
 
   static Database? _database;
-  // Tek seferlik init: eşzamanlı çağrılar aynı Future'ı bekler, race önlenir
   static Future<Database>? _databaseFuture;
   
-  // Web için geçici bellek içi depolama
   final List<BasketModel> _webBaskets = [];
-  int _webNextId = 1; // Güvenli ID üretici (uzunluğa bağlı değil)
+  int _webNextId = 1;
 
   Future<Database?> get database async {
     if (kIsWeb) return null;
@@ -51,8 +49,6 @@ class DatabaseService {
     ''');
   }
 
-  /// v1 → v2: A/B noktaları için ayrı isim kolonları eklenir.
-  /// ALTER TABLE mevcut kayıtları bozmaz; eski satırlarda kolonlar NULL kalır.
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
       await db.execute('ALTER TABLE baskets ADD COLUMN start_name TEXT');
@@ -60,9 +56,6 @@ class DatabaseService {
     }
   }
 
-  // --- CRUD İşlemleri ---
-
-  /// Yeni bir sepet ekler
   Future<int> insertBasket(BasketModel basket) async {
     if (kIsWeb) {
       final id = _webNextId++;
@@ -79,7 +72,6 @@ class DatabaseService {
     );
   }
 
-  /// Mevcut sepeti günceller
   Future<int> updateBasket(BasketModel basket) async {
     if (basket.id == null) return 0;
     
@@ -101,10 +93,8 @@ class DatabaseService {
     );
   }
 
-  /// Tüm sepetleri listeler
   Future<List<BasketModel>> getAllBaskets() async {
     if (kIsWeb) {
-      // En yeni eklenen en üstte olacak şekilde sırala
       return List.from(_webBaskets.reversed);
     }
 
@@ -116,7 +106,6 @@ class DatabaseService {
     return List.generate(maps.length, (i) => BasketModel.fromMap(maps[i]));
   }
 
-  /// Tamamlanmamış sepetleri döner
   Future<List<BasketModel>> getActiveBaskets() async {
     if (kIsWeb) {
       return _webBaskets.where((b) => !b.isCompleted).toList();
@@ -132,7 +121,6 @@ class DatabaseService {
     return List.generate(maps.length, (i) => BasketModel.fromMap(maps[i]));
   }
 
-  /// Tek bir sepeti ID ile sorgular
   Future<BasketModel?> getBasketById(int id) async {
     if (kIsWeb) {
       final results = _webBaskets.where((b) => b.id == id);
@@ -149,7 +137,6 @@ class DatabaseService {
     return BasketModel.fromMap(maps.first);
   }
 
-  /// Sepeti veritabanından siler
   Future<int> deleteBasket(int id) async {
     if (kIsWeb) {
       final initialLength = _webBaskets.length;
@@ -165,7 +152,6 @@ class DatabaseService {
     );
   }
 
-  /// Tüm veritabanını temizler
   Future<void> clearDatabase() async {
     if (kIsWeb) {
       _webBaskets.clear();

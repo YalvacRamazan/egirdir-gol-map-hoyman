@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
-import 'package:map/services/sqlite_tile_cache_service.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
 
 class AyarlarEkran extends StatefulWidget {
@@ -18,8 +17,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
   final _phoneController = TextEditingController();
   double _accuracyThreshold = 15.0;
   String _themeMode = 'system';
-  CacheStats? _cacheStats;
-  bool _cacheError = false;
 
   @override
   void initState() {
@@ -27,17 +24,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     _phoneController.text = _settingsService.settings.backupPhoneNumber;
     _accuracyThreshold = _settingsService.settings.gpsAccuracyThreshold;
     _themeMode = _settingsService.settings.themeMode;
-    _loadCacheStats();
-  }
-
-  Future<void> _loadCacheStats() async {
-    setState(() => _cacheError = false);
-    try {
-      final stats = await SqliteTileCacheService().getStats();
-      if (mounted) setState(() => _cacheStats = stats);
-    } catch (_) {
-      if (mounted) setState(() => _cacheError = true);
-    }
   }
 
   @override
@@ -64,7 +50,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     }
   }
 
-  /// Tema modunu anında uygular ve kalıcı olarak kaydeder.
   Future<void> _changeThemeMode(String value) async {
     setState(() => _themeMode = value);
     await _settingsService.saveSettings(
@@ -88,7 +73,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // --- GÖRÜNÜM BÖLÜMÜ ---
             _sectionTitle(context, 'Görünüm'),
             const SizedBox(height: 8),
             Card(
@@ -125,7 +109,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             ),
             const SizedBox(height: 20),
 
-            // --- GÜVENLİK VE VERİ DEPOLAMA BÖLÜMÜ ---
             _sectionTitle(context, 'Güvenlik ve Veri Depolama'),
             const SizedBox(height: 8),
             Card(
@@ -165,7 +148,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             ),
             const SizedBox(height: 20),
 
-            // --- GPS VE PİL OPTİMİZASYONU BÖLÜMÜ ---
             _sectionTitle(context, 'GPS ve Pil Ayarları (J7 Prime Uyumlu)'),
             const SizedBox(height: 8),
             Card(
@@ -198,93 +180,29 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                       },
                     ),
                     const Divider(height: 20),
-                    // --- HARİTA ÖNBELLEĞİ BİLGİ KARTI ---
                     Row(
                       children: [
-                        Icon(Icons.map_outlined, size: 20, color: scheme.onSurfaceVariant),
+                        Icon(Icons.map_outlined,
+                            size: 20, color: scheme.onSurfaceVariant),
                         const SizedBox(width: 10),
                         Expanded(
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               const Text(
-                                'Harita Önbelleği',
+                                'Harita',
                                 style: TextStyle(fontWeight: FontWeight.w600),
                               ),
-                              if (_cacheError)
-                                Text(
-                                  'Önbellek bilgisi alınamadı.',
-                                  style: TextStyle(fontSize: 13, color: scheme.error),
-                                )
-                              else
-                                Text(
-                                  _cacheStats == null
-                                      ? 'Yükleniyor...'
-                                      : '${_cacheStats!.tileCount} tile · ${_cacheStats!.formattedSize}',
-                                  style: TextStyle(
-                                      fontSize: 13, color: scheme.onSurfaceVariant),
-                                ),
                               Text(
-                                'Sınır: en fazla '
-                                '${(SqliteTileCacheService.maxCacheBytes / (1024 * 1024)).toStringAsFixed(0)} MB / '
-                                '${SqliteTileCacheService.maxCacheAge.inDays} gün. '
-                                'Gezilen harita alanları otomatik kaydedilir; '
-                                'eski ve sınır aşan tile\'lar otomatik silinir.',
+                                'OpenStreetMap tile\'ları internetten anlık '
+                                'yüklenir; cihazda kalıcı olarak birikmez.',
                                 style: TextStyle(
-                                    fontSize: 13, color: scheme.onSurfaceVariant),
+                                    fontSize: 13,
+                                    color: scheme.onSurfaceVariant),
                               ),
                             ],
                           ),
                         ),
-                        if (_cacheError)
-                          TextButton.icon(
-                            style: TextButton.styleFrom(foregroundColor: scheme.primary),
-                            onPressed: _loadCacheStats,
-                            icon: const Icon(Icons.refresh, size: 18),
-                            label: const Text('Yeniden Dene'),
-                          )
-                        else
-                          TextButton.icon(
-                            style: TextButton.styleFrom(foregroundColor: scheme.error),
-                            onPressed: _cacheStats == null || _cacheStats!.tileCount == 0
-                                ? null
-                                : () async {
-                                    final messenger = ScaffoldMessenger.of(context);
-                                    final confirm = await showDialog<bool>(
-                                      context: context,
-                                      builder: (ctx) => AlertDialog(
-                                        title: const Text('Önbelleği Temizle'),
-                                        content: Text(
-                                          '${_cacheStats!.tileCount} tile (${_cacheStats!.formattedSize}) silinecek. Devam?',
-                                        ),
-                                        actions: [
-                                          TextButton(
-                                            onPressed: () => Navigator.pop(ctx, false),
-                                            child: const Text('İptal'),
-                                          ),
-                                          ElevatedButton(
-                                            style: ElevatedButton.styleFrom(
-                                                backgroundColor: scheme.error,
-                                                foregroundColor: scheme.onError),
-                                            onPressed: () => Navigator.pop(ctx, true),
-                                            child: const Text('Temizle'),
-                                          ),
-                                        ],
-                                      ),
-                                    );
-                                    if (confirm == true) {
-                                      await SqliteTileCacheService().clearAll();
-                                      await _loadCacheStats();
-                                      if (!mounted) return;
-                                      messenger.showSnackBar(
-                                        const SnackBar(
-                                            content: Text('Harita önbelleği temizlendi.')),
-                                      );
-                                    }
-                                  },
-                            icon: const Icon(Icons.delete_outline, size: 18),
-                            label: const Text('Temizle'),
-                          ),
                       ],
                     ),
                   ],
@@ -293,7 +211,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             ),
             const SizedBox(height: 20),
 
-            // --- MANUEL YEDEKLEME VE VERİ YÖNETİMİ ---
             _sectionTitle(context, 'Veri Yönetimi'),
             const SizedBox(height: 8),
             SizedBox(
@@ -318,7 +235,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             ),
             const SizedBox(height: 30),
 
-            // --- KAYDET BUTONU ---
             SizedBox(
               width: double.infinity,
               height: 50,

@@ -8,27 +8,12 @@ import 'package:flutter_map/flutter_map.dart';
 
 import 'sqlite_tile_cache_service.dart';
 
-/// flutter_map için SQLite destekli TileProvider.
-///
-/// Davranış:
-///   1. SQLite önbelleğinde tile varsa → doğrudan MemoryImage döner (offline çalışır)
-///   2. Önbellekte yoksa → OSM'den indirir, SQLite'a kaydeder, MemoryImage döner
-///   3. Her ikisi de başarısızsa → şeffaf boş tile döner (uygulama çökmez)
 class SqliteTileProvider extends TileProvider {
   final _cache = SqliteTileCacheService();
   final HttpClient _httpClient = HttpClient();
 
-  /// Son ağ denemesinin sonucunu bildirir: true = son ağ denemesi
-  /// başarısız (muhtemel çevrimdışı). Önbellekten okumalar bu değeri
-  /// değiştirmez; yalnızca ağ denemeleri günceller.
-  ///
-  /// Harita ekranı bu notifier'ı dinleyerek kullanıcıya "çevrimdışı:
-  /// yalnızca önbellekteki alanlar gösteriliyor" bilgisi verebilir.
-  /// (UI bağlaması ayrı görevde yapılacaktır.)
   final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
 
-  /// Çevrimdışına ilk geçişte (false → true) bir kez tetiklenen
-  /// opsiyonel callback. Her hatalı tile için tekrar çağrılmaz.
   final void Function()? onNetworkError;
 
   SqliteTileProvider({this.onNetworkError}) {
@@ -55,10 +40,6 @@ class SqliteTileProvider extends TileProvider {
     );
   }
 }
-
-// ---------------------------------------------------------------------------
-// Dahili ImageProvider: SQLite cache + network fallback
-// ---------------------------------------------------------------------------
 
 class _SqliteTileImageProvider
     extends ImageProvider<_SqliteTileImageProvider> {
@@ -104,13 +85,11 @@ class _SqliteTileImageProvider
     final x = coordinates.x;
     final y = coordinates.y;
 
-    // 1. Önbellekten dene
     final cached = await cache.getTile(z, x, y);
     if (cached != null) {
       return _decodeBytes(cached, decode);
     }
 
-    // 2. Ağdan indir
     final url = tileUrlBuilder(coordinates, options);
     try {
       final request = await httpClient.getUrl(Uri.parse(url));
@@ -121,26 +100,21 @@ class _SqliteTileImageProvider
         final bytes = await response
             .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
         final data = Uint8List.fromList(bytes);
-        // Arka planda kaydet (awaitsiz, UI'yı bloklamaz)
         unawaited(cache.saveTile(z, x, y, data));
         return await _decodeBytes(data, decode);
       }
       _reportNetworkError();
     } catch (_) {
-      // Ağ hatası: boş tile döner, durumu dışarı bildir
       _reportNetworkError();
     }
 
-    // 3. Fallback: 1×1 şeffaf PNG
     return _decodeBytes(_kTransparentPng, decode);
   }
 
-  /// Başarılı ağ yanıtı: çevrimdışı durumunu sıfırlar.
   void _reportOnline() {
     if (offline.value) offline.value = false;
   }
 
-  /// Başarısız ağ denemesi: çevrimdışına geçişi bildirir.
   void _reportNetworkError() {
     if (!offline.value) {
       offline.value = true;
@@ -157,7 +131,6 @@ class _SqliteTileImageProvider
       final frame = await codec.getNextFrame();
       return ImageInfo(image: frame.image);
     } finally {
-      // Native bellek sızıntısını önle: codec ve buffer her durumda serbest kalır
       codec?.dispose();
       buffer.dispose();
     }
@@ -173,7 +146,6 @@ class _SqliteTileImageProvider
   int get hashCode => Object.hash(coordinates, options.urlTemplate);
 }
 
-// 1×1 şeffaf PNG (fallback tile)
 final Uint8List _kTransparentPng = Uint8List.fromList([
   0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
   0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,

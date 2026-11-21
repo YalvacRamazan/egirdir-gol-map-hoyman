@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Sepet Takip uygulamasının teknik dokümantasyonu: mimari, veri modeli, servisler, harita stratejisi ve testler.">
+  <title>Sepet Takip — Teknik Dokümantasyon</title>
+  <style>
+    :root {
+      --primary: #1565C0;
+      --point-a: #2E7D32;
+      --point-b: #C62828;
+      --warning: #BF360C;
+      --ink: #1f2430;
+      --muted: #5b6472;
+      --surface: #ffffff;
+      --panel: #f4f6fa;
+      --line: #dfe4ee;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      color: var(--ink);
+      background: var(--panel);
+      line-height: 1.6;
+    }
+    header {
+      background: var(--primary);
+      color: #fff;
+      padding: 2rem 1.25rem;
+    }
+    header h1 { margin: 0 0 .25rem; font-size: 1.6rem; }
+    header p { margin: 0; opacity: .9; }
+    nav {
+      background: var(--surface);
+      border-bottom: 1px solid var(--line);
+      padding: .75rem 1.25rem;
+    }
+    nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: .35rem .9rem; }
+    nav a { color: var(--primary); text-decoration: none; font-size: .92rem; }
+    nav a:hover, nav a:focus { text-decoration: underline; }
+    main { max-width: 60rem; margin: 0 auto; padding: 1.5rem 1.25rem 3rem; }
+    section {
+      background: var(--surface);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 1.25rem 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+    h2 { font-size: 1.25rem; margin: 0 0 .75rem; color: var(--primary); }
+    h3 { font-size: 1.05rem; margin: 1.25rem 0 .5rem; }
+    p, li { font-size: .95rem; }
+    table { width: 100%; border-collapse: collapse; margin: .75rem 0; font-size: .9rem; }
+    th, td { border: 1px solid var(--line); padding: .45rem .6rem; text-align: left; vertical-align: top; }
+    th { background: var(--panel); }
+    code {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: .85em;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      padding: .05rem .3rem;
+      word-break: break-word;
+    }
+    ul { padding-left: 1.25rem; }
+    .tag { display: inline-block; font-size: .75rem; font-weight: 600; border-radius: 999px; padding: .1rem .55rem; color: #fff; }
+    .tag.a { background: var(--point-a); }
+    .tag.b { background: var(--point-b); }
+    .tag.w { background: var(--warning); }
+    .tag.p { background: var(--primary); }
+    footer { text-align: center; color: var(--muted); font-size: .85rem; padding: 1rem; }
+    @media (max-width: 640px) {
+      section { padding: 1rem; }
+      table { display: block; overflow-x: auto; }
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>Sepet Takip</h1>
+  <p>Teknik Dokümantasyon · Eğirdir / Hoyman Gölü saha aracı · Sürüm 1.0.0</p>
+</header>
+
+<nav aria-label="İçindekiler">
+  <ul>
+    <li><a href="#genel-bakis">Genel Bakış</a></li>
+    <li><a href="#mimari">Mimari</a></li>
+    <li><a href="#veri-modeli">Veri Modeli</a></li>
+    <li><a href="#servisler">Servisler</a></li>
+    <li><a href="#viewmodel">ViewModel</a></li>
+    <li><a href="#harita-ekrani">Harita Ekranı</a></li>
+    <li><a href="#yardimcilar">Yardımcılar</a></li>
+    <li><a href="#widgetlar">Widgetlar</a></li>
+    <li><a href="#tema-palet">Tema ve Palet</a></li>
+    <li><a href="#yayin-kimligi">Yayın Kimliği</a></li>
+    <li><a href="#testler">Testler</a></li>
+    <li><a href="#sinirlar">Bilinen Sınırlar</a></li>
+  </ul>
+</nav>
+
+<main>
+
+<section id="genel-bakis">
+  <h2>Genel Bakış</h2>
+  <p>
+    <strong>Sepet Takip</strong>, Eğirdir/Hoyman Gölü'nde çalışan saha kullanıcısı için geliştirilmiş
+    bir Android öncelikli Flutter uygulamasıdır. Kullanıcı harita üzerinde <span class="tag a">A</span>
+    (başlangıç) ve <span class="tag b">B</span> (bitiş) noktalarını seçerek sepet kaydeder; uygulama
+    A→B hedef yönünü (bearing), teknenin dönmesi gereken rotasyonu, sepete anlık uzaklığı ve tahmini
+    varış saatini hesaplayıp gösterir. Rota bilgisi WhatsApp mesajı olarak paylaşılabilir.
+  </p>
+  <ul>
+    <li><strong>Hedef donanım:</strong> Düşük donanımlı Android cihazlar (J7 Prime önceliği); açık havada, gündüz, tek elle kullanım.</li>
+    <li><strong>Harita:</strong> OpenStreetMap tile'ları internetten anlık indirilir; cihazda kalıcı tile deposu tutulmaz.</li>
+    <li><strong>Yerel veri:</strong> Sepet ve koordinat kayıtları SQLite'ta saklanır.</li>
+    <li><strong>Tasarım ilkeleri:</strong> Sade, işlevsel, harita-öncelikli; sonsuz animasyon yok; tüm metinler WCAG 2.1 AA kontrastını geçer.</li>
+  </ul>
+</section>
+
+<section id="mimari">
+  <h2>Mimari</h2>
+  <p>Proje, UI → ViewModel → Service → Model katmanlamasına uyar. Veri akışı tek yönlüdür:
+  servisler ham veriyi üretir, ViewModel durumu birleştirip <code>ChangeNotifier</code> olarak yayınlar,
+  ekranlar <code>ListenableBuilder</code> ile dinler.</p>
+  <table>
+    <thead>
+      <tr><th>Katman</th><th>Dizin</th><th>Sorumluluk</th></tr>
+    </thead>
+    <tbody>
+      <tr><td>Views</td><td><code>lib/views/</code></td><td>Ekranlar ve overlay'ler; yalnızca ViewModel okur, eylem çağırır.</td></tr>
+      <tr><td>ViewModel</td><td><code>lib/viewmodels/</code></td><td>Uygulama durumu, iş akışları, <code>notifyListeners()</code> yayını.</td></tr>
+      <tr><td>Services</td><td><code>lib/services/</code></td><td>Konum, pusula, veritabanı, ayarlar, paylaşım, (legacy) tile önbelleği.</td></tr>
+      <tr><td>Models</td><td><code>lib/models/</code></td><td>Saf veri sınıfları ve geometri hesapları.</td></tr>
+      <tr><td>Utils</td><td><code>lib/utils/</code></td><td>Bearing matematiği, WCAG kontrastı, saat biçimlendirme.</td></tr>
+      <tr><td>Widgets</td><td><code>lib/widgets/</code></td><td>Tekrar kullanılabilir arayüz parçaları (saat, rozet, metreölçer).</td></tr>
+      <tr><td>Theme</td><td><code>lib/theme/</code></td><td>Paletin tek merkezi; sabit renkler ve parlaklık varyantları.</td></tr>
+    </tbody>
+  </table>
+  <h3>Veri akışı</h3>
+  <ul>
+    <li><strong>Konum:</strong> <code>Geolocator.getPositionStream</code> → <code>LocationService</code> (broadcast stream) → <code>MapViewModel</code> → harita, metreölçer, ETA.</li>
+    <li><strong>Yön:</strong> <code>flutter_compass</code> → <code>CompassService</code> (heading stream + <code>isAvailable</code>) → <code>MapViewModel</code> → yön oku ve pusula.</li>
+    <li><strong>Kayıt:</strong> Ekran eylemi → <code>MapViewModel</code> → <code>DatabaseService</code> (SQLite) → <code>loadBaskets()</code> → UI.</li>
+    <li><strong>Tile:</strong> <code>TileLayer</code> → <code>NetworkTileProvider</code> → OSM (HTTPS) → bellek içi görüntü önbelleği.</li>
+  </ul>
+</section>
+
+<section id="veri-modeli">
+  <h2>Veri Modeli</h2>
+  <h3><code>BasketModel</code> (lib/models/basket_model.dart)</h3>
+  <table>
+    <thead><tr><th>Alan</th><th>Tip</th><th>Anlam</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td><code>int?</code></td><td>SQLite birincil anahtarı; ekleme öncesi null.</td></tr>
+      <tr><td><code>name</code></td><td><code>String</code></td><td>Sepet adı (ör. "Sepet #3").</td></tr>
+      <tr><td><code>startName / endName</code></td><td><code>String?</code></td><td>A/B noktası özel adı; boşsa "A Noktası" / "B Noktası" etiketi kullanılır (<code>startDisplayName</code>, <code>endDisplayName</code>).</td></tr>
+      <tr><td><code>startLatitude / startLongitude</code></td><td><code>double</code></td><td>A noktası koordinatları.</td></tr>
+      <tr><td><code>endLatitude / endLongitude</code></td><td><code>double?</code></td><td>B noktası koordinatları; kayıt tamamlanmadan null.</td></tr>
+      <tr><td><code>startTimestamp / endTimestamp</code></td><td><code>DateTime</code></td><td>Nokta kayıt zamanları (ISO 8601 olarak saklanır).</td></tr>
+      <tr><td><code>isCompleted</code></td><td><code>bool</code></td><td>B noktası yerleştirildiyse true.</td></tr>
+    </tbody>
+  </table>
+  <h3>Geometri metotları</h3>
+  <ul>
+    <li><code>distanceInMeters</code> — A–B arası Haversine mesafe (R = 6.371.000 m).</li>
+    <li><code>distanceToStart(lat, lon)</code> / <code>distanceToEnd(lat, lon)</code> — verilen noktanın A/B'ye uzaklığı.</li>
+    <li><code>distanceToLine(cLat, cLon)</code> — kullanıcının A→B hattına (sepet ipine) en kısa mesafesi; tamamlanmamış sepette null.</li>
+    <li><code>projectionPoint(cLat, cLon)</code> — düzlem izdüşümüyle hattaki en yakın P noktası; oran <code>t</code> [0,1] aralığına sıkıştırılır (uç noktalar dışına taşma yok).</li>
+    <li><code>initialBearing</code> — A→B büyük daire başlangıç yönü, [0, 360).</li>
+    <li><code>initialBearingFrom(heading)</code> — hedef yön ile cihaz yönü arasındaki en kısa işaretli fark (rotasyon).</li>
+    <li><code>toMap / fromMap / copyWith</code> — SQLite eşlemesi; eski kayıtlarda <code>start_name</code>/<code>end_name</code> yoksa null ile okunur.</li>
+  </ul>
+</section>
+
+<section id="servisler">
+  <h2>Servisler</h2>
+
+  <h3><code>LocationService</code> (singleton)</h3>
+  <ul>
+    <li>İzin akışı <code>checkAndRequestPermissionDetailed()</code> ile yönetilir; sonuç <code>LocationPermissionResult</code> döner (<code>granted</code>, <code>reason</code>, <code>isPermanentlyDenied</code>, <code>isUnavailable</code>).</li>
+    <li><code>MissingPluginException</code> (Linux/Windows masaüstü) hata değil, <code>isUnavailable = true</code> olarak sinyallenir; uygulama konumsuz modda devam eder.</li>
+    <li><strong>Boost modu:</strong> <code>LocationAccuracy.best</code> + <code>distanceFilter: 0</code> (her hareket); normal mod: <code>medium</code> + 5 m. <code>timeLimit</code> bilinçli olarak kullanılmaz; aksi halde stream sürekli kapanıp açılır.</li>
+    <li><code>accuracyThreshold</code> varsayılan 15 m; <code>isAccuracyAcceptable()</code> kayıt ve uyarı kararlarında kullanılır.</li>
+    <li>Konumlar broadcast <code>StreamController</code> üzerinden yayınlanır; singleton dispose edilse bile controller açık kalır (StateError önlenir).</li>
+  </ul>
+
+  <h3><code>CompassService</code></h3>
+  <ul>
+    <li>Cihazın <em>baktığı</em> yönü (heading) yayınlar: 0° = kuzey, saat yönü pozitif. GPS <code>Position.heading</code> hareket yönü verdiği için ayrı sensör kullanılır.</li>
+    <li>İlk olay 3 saniye içinde gelmezse sensör kullanılamıyor sayılır; <code>isAvailable</code> <code>ValueNotifier</code> ile bildirilir.</li>
+    <li>Sensör yok / izinsiz / akış hatası durumlarında exception fırlatmaz; uygulama düşmez, durum UI'a yansır.</li>
+    <li><code>start()</code> idempotent; arka plana geçişte pil için <code>stop()</code> çağrılır.</li>
+  </ul>
+
+  <h3><code>DatabaseService</code> (singleton, SQLite)</h3>
+  <p>Veritabanı: <code>gol_sepet_takip.db</code>, tablo <code>baskets</code> (sürüm 2):</p>
+  <table>
+    <thead><tr><th>Kolon</th><th>Tip</th><th>Not</th></tr></thead>
+    <tbody>
+      <tr><td><code>id</code></td><td>INTEGER PK AUTOINCREMENT</td><td>—</td></tr>
+      <tr><td><code>name</code></td><td>TEXT NOT NULL</td><td>—</td></tr>
+      <tr><td><code>start_name / end_name</code></td><td>TEXT</td><td>v1→v2 migration ile eklendi; eski satırlarda NULL.</td></tr>
+      <tr><td><code>start_latitude / start_longitude</code></td><td>REAL NOT NULL</td><td>—</td></tr>
+      <tr><td><code>end_latitude / end_longitude</code></td><td>REAL</td><td>Tamamlanmamış sepette NULL.</td></tr>
+      <tr><td><code>start_timestamp / end_timestamp</code></td><td>TEXT</td><td>ISO 8601.</td></tr>
+      <tr><td><code>is_completed</code></td><td>INTEGER DEFAULT 0</td><td>—</td></tr>
+    </tbody>
+  </table>
+  <ul>
+    <li>Tüm sorgular parametre bağlamalı (<code>whereArgs</code>); SQL injection riski yok.</li>
+    <li>Tek seferlik init: eşzamanlı çağrılar aynı <code>Future</code>'ı bekler (race önlenir).</li>
+    <li>Web'de (<code>kIsWeb</code>) sqflite yoktur; bellek içi liste fallback olarak kullanılır ve güvenli ID üreticisiyle çalışır.</li>
+  </ul>
+
+  <h3><code>SettingsService</code> (singleton)</h3>
+  <ul>
+    <li>Ayarlar <code>app_settings.json</code> dosyasında saklanır: <code>backupPhoneNumber</code>, <code>gpsAccuracyThreshold</code> (varsayılan 15 m), <code>themeMode</code> (<code>light</code>/<code>dark</code>/<code>system</code>).</li>
+    <li><code>themeModeNotifier</code> tema değişiminde <code>MaterialApp</code>'ı yeniden kurar.</li>
+    <li>Dosya okuma/yazma hatalarında varsayılan ayarlarla sessizce devam edilir.</li>
+  </ul>
+
+  <h3><code>ShareService</code> (singleton)</h3>
+  <ul>
+    <li><code>shareBasket()</code>: hedef numara verildiyse <code>whatsapp://send</code>, yoksa <code>https://wa.me</code> denenir; ikisi de başarısızsa sistem paylaşım menüsü açılır. Mesaj asla kullanıcı onayı olmadan gönderilmez.</li>
+    <li>Mesaj şablonu emoji ile bölümlenir: sepet adı, tarih, A/B isim ve koordinatları, Google Maps bağlantıları, sepet uzunluğu, hedef yön, rotasyon ("yön verisi yok" fallback), serim süresi.</li>
+    <li><code>shareBackup()</code>: tüm sepetlerin numaralı yedek metnini paylaşır; yarım sepette "B (Bitiş): Kaydedilmedi" yazar.</li>
+  </ul>
+
+  <h3>Tile önbelleği (legacy)</h3>
+  <p>
+    <code>SqliteTileCacheService</code> ve <code>SqliteTileProvider</code> artık harita akışına bağlı değildir;
+    tile'lar doğrudan internetten indirilir. Sınıf dosyaları, eviction mantığını doğrulayan
+    <code>test/tile_cache_eviction_test.dart</code> ile geriye dönük uyumluluk için repoda tutulur:
+    50 MB disk sınırı, 30 gün yaş sınırı, en eski yazılandan silme (LRU-benzeri), okumada timestamp güncellenmez.
+  </p>
+</section>
+
+<section id="viewmodel">
+  <h2>ViewModel — <code>MapViewModel</code></h2>
+  <p><code>ChangeNotifier</code> + <code>WidgetsBindingObserver</code>. Tüm bildirimler <code>_safeNotify()</code> üzerinden yapılır; dispose sonrası çağrı güvenlidir.</p>
+  <h3>Durum alanları</h3>
+  <ul>
+    <li><code>baskets</code>, <code>activeBasket</code> (yarım kayıt), <code>selectedBasket</code> (haritada gösterilen).</li>
+    <li><code>currentPosition</code>, <code>currentHeading</code>, <code>isGpsAccuracyGood</code>, <code>gpsStatusText</code>, <code>isGpsError</code>, <code>isLocationUnavailable</code>.</li>
+    <li><code>selectionMode</code>: <code>none</code> / <code>selectA</code> / <code>selectB</code> — harita dokunuşunun A/B noktası olup olmadığını belirler; aynı mod tekrar başlatılırsa iptal olur (toggle).</li>
+    <li><code>targetBearing</code> ve <code>requiredRotation</code>: gösterilen sepetteki A→B yönü ve mevcut yöne göre dönüş.</li>
+  </ul>
+  <h3>init() akışı</h3>
+  <ol>
+    <li>Lifecycle observer kaydı ve pusula başlatma.</li>
+    <li>Sepetlerin yüklenmesi; yarım kayıt varsa <code>activeBasket</code> olarak alınır.</li>
+    <li>Aktif kayıt yoksa en son tamamlanmış sepet otomatik seçilir (açılışta mesafe bilgisi görünsün).</li>
+    <li>İzin kontrolü; verilirse konum takibi başlar, yoksa nedeni ve kalıcı-ret durumu saklanır.</li>
+  </ol>
+  <h3>Kayıt akışı</h3>
+  <ul>
+    <li><code>startRecordingBasket(name, startName)</code> — GPS konumuyla A noktası kaydı; sepet SQLite'a yazılır ve haritada gösterilir.</li>
+    <li><code>stopRecordingBasket(endName)</code> — mevcut GPS konumu B olur, sepet tamamlanır.</li>
+    <li><code>setPointA / setPointB</code> — harita dokunuşuyla nokta koyma; aktif sepet yoksa A yeni sepet başlatır, B null döner.</li>
+    <li><code>renamePointA / renamePointB</code> — <code>basketId</code> verilmezse seçili/aktif sepet hedeflenir.</li>
+    <li><code>cancelRecording()</code> — aktif kayıt silinir; <code>selectBasket(null)</code> ve <code>deleteBasket(id)</code> katalog eylemleridir.</li>
+  </ul>
+  <h3>Yaşam döngüsü</h3>
+  <ul>
+    <li><strong>resumed:</strong> izin varsa GPS yeniden başlatılır, pusula yeniden açılır.</li>
+    <li><strong>paused:</strong> aktif kayıt <em>yoksa</em> GPS durdurulur; aktif kayıt varsa konum yitirmemek için stream açık kalır. Pusula arka planda her zaman durdurulur.</li>
+  </ul>
+</section>
+
+<section id="harita-ekrani">
+  <h2>Harita Ekranı — <code>HaritaEkran</code></h2>
+  <p><code>Stack</code> üzerinde katmanlı yapı; her katman <code>Positioned</code> ile yerleşir.</p>
+  <h3>Harita katmanları</h3>
+  <ul>
+    <li><code>TileLayer</code> — <code>https://tile.openstreetmap.org/{z}/{x}/{y}.png</code>, <code>userAgentPackageName: com.rumata.gol_sepet_takip</code>, <code>NetworkTileProvider</code>. Provider tek kez oluşturulur (kaynak churn önlenir) ve dispose edilir.</li>
+    <li>OSM atıfı <code>RichAttributionWidget</code> ile görünür; tıklanınca telif sayfası açılır.</li>
+    <li>GPS doğruluk çemberi: iyi doğrulukta birincil renk, zayıfta uyarı rengi; yarıçap metre cinsinden.</li>
+    <li>A→B polyline ve A/B markerları; marker adlarına dokununca isim düzenleme diyaloğu açılır.</li>
+    <li>Kullanıcı konum işaretçisi; heading varsa yön oku heading'e göre döner.</li>
+  </ul>
+  <h3>Overlay'ler</h3>
+  <ul>
+    <li><strong>Üst kontrol paneli:</strong> GPS durum kartı, GPS Boost düğmesi, katalog ve ayarlar düğmeleri.</li>
+    <li><strong>Kaydırmalı durum barı:</strong> üst panelin altında yatay kaydırılabilir şerit; içinde canlı saat (<code>LiveClockChip</code>) ve tahmini varış rozeti (<code>StatusPill</code>) yer alır. Yalnızca içeriği kadar yükseklik kaplar.</li>
+    <li><strong>Metreölçer:</strong> sol kenarda <code>DistanceGauge</code>; seçim modundayken yönerge bandıyla çakışmaması için gizlenir.</li>
+    <li><strong>Pusula overlay'i:</strong> sol altta sabit kadranlı (K/G/D/B) pusula; sensör yoksa uyarı rozeti. Konum yokken yön oku harita merkezinde "Yön" etiketiyle gösterilir.</li>
+    <li><strong>Konumuma Git FAB'ı</strong> ve sağ kenarda A/B seçim düğmeleri (48 px dokunma hedefi).</li>
+    <li><strong>Seçim bandı:</strong> A/B seçim modunda yönerge + İptal.</li>
+    <li><strong>İzin overlay'i:</strong> izin yoksa "Yeniden Dene" ve kalıcı rette "Ayarları Aç".</li>
+    <li><strong>Başlangıç yükleme overlay'i.</strong></li>
+  </ul>
+  <h3>Alt panelin üç durumu</h3>
+  <ol>
+    <li><strong>Aktif kayıt:</strong> sepet adı, A noktası adı (düzenlenebilir), A'ya anlık uzaklık, hedef yön/rotasyon kartı, B seçimi ve bitir/iptal düğmeleri. Zayıf GPS'te bitirmeden önce uyarı diyaloğu gösterilir.</li>
+    <li><strong>Seçili sepet:</strong> A/B ad rozetleri, sepet uzunluğu, sepete uzaklık, A/B'ye anlık mesafe kartları, WhatsApp paylaşımı.</li>
+    <li><strong>Varsayılan:</strong> kısa yönerge ve "Sepet Başlat (A Noktası)" düğmesi.</li>
+  </ol>
+  <h3>ETA hesabı</h3>
+  <p>
+    Tahmini varış, anlık uzaklığın GPS hızına bölünmesiyle hesaplanır:
+    <code>DateTime.now() + distance / speed</code>. GPS hızı 0,5 m/s'nin altındaysa veya geçersizse
+    varsayılan <strong>2 m/s</strong> (~7 km/sa) tekne hızı kullanılır. Sonuç <code>HH:mm</code> biçiminde
+    "Varış ~" rozeti olarak gösterilir; konum güncellemelerinde otomatik yenilenir.
+  </p>
+  <h3>Uzaklık seçimi</h3>
+  <p>
+    Tamamlanmış sepette metreölçer ve ETA, kullanıcının <strong>A→B hattına</strong> olan mesafesini
+    (<code>distanceToLine</code>) kullanır; yarım sepette <strong>A noktasına</strong> olan mesafeyi
+    (<code>distanceToStart</code>) kullanır.
+  </p>
+</section>
+
+<section id="yardimcilar">
+  <h2>Yardımcılar</h2>
+  <h3><code>lib/utils/bearing.dart</code></h3>
+  <ul>
+    <li><code>initialBearing(from, to)</code> — büyük daire başlangıç yönü, [0, 360); kuzey 0°, doğu 90°, güney 180°, batı 270°. Aynı noktalar 0 döner; sonlu olmayan koordinatlar <code>double.nan</code>.</li>
+    <li><code>normalizeAngle(degrees)</code> — açıyı [-180, 180) aralığına indirir; tam 180° → -180°. Dart'ın <code>%</code> operatörü Euclidean modulo ürettiği için formül negatif girdilerde de doğru çalışır.</li>
+    <li><code>shortestAngleDifference(target, heading)</code> — en kısa işaretli dönüş; pozitif saat yönü (sağa), negatif tersi (sola).</li>
+    <li><code>cardinalLabel(heading)</code> — Türkçe ana yön etiketi (K/D/G/B); sektör sınırları 45°: [315,45)→K, [45,135)→D, [135,225)→G, [225,315)→B. Sonlu olmayan girdi null.</li>
+  </ul>
+  <h3><code>lib/utils/contrast.dart</code></h3>
+  <ul>
+    <li><code>relativeLuminance(color)</code> — WCAG 2.1 bağıl parlaklık; kanallar 0,03928 eşiğiyle doğrusallaştırılır.</li>
+    <li><code>contrastRatio(a, b)</code> — 1,0–21,0 aralığında oran. Eşikler: normal metin ≥ 4,5; büyük metin ve arayüz bileşenleri ≥ 3,0.</li>
+  </ul>
+  <h3><code>lib/utils/time_format.dart</code></h3>
+  <ul>
+    <li><code>formatHourMinute(time)</code> — 24 saatlik <code>HH:mm</code> biçimi; canlı saat ve ETA tarafından paylaşılır.</li>
+  </ul>
+</section>
+
+<section id="widgetlar">
+  <h2>Widgetlar</h2>
+  <h3><code>LiveClockChip</code> (lib/widgets/status_widgets.dart)</h3>
+  <p>
+    Kaydırmalı bardaki canlı saat. Saniye başı değil, <strong>dakika değişimine hizalanmış</strong> tek
+    <code>Timer</code> ile yenilenir; düşük donanımda gereksiz rebuild oluşturmaz. <code>Semantics</code>
+    etiketiyle ekran okuyucuya "Şu anki saat HH:mm" bildirir.
+  </p>
+  <h3><code>StatusPill</code></h3>
+  <p>Tek satırlık bilgi rozeti; <code>emphasized</code> modunda birincil renk zeminde beyaz metin kullanır (AA).</p>
+  <h3><code>DistanceGauge</code> (lib/widgets/distance_gauge.dart)</h3>
+  <ul>
+    <li>Dikey metreölçer: 500 m varsayılan ölçekte dolgu oranı; uzaklık ölçeği aşarsa ölçer dolu kalır, gerçek metre değeri yazılır.</li>
+    <li>%25/%50/%75 ölçek çizgileri; minimum dolgu %4 (sıfırda bile görünür).</li>
+    <li><code>Semantics</code> etiketi: "Sepete uzaklık: N metre".</li>
+  </ul>
+</section>
+
+<section id="tema-palet">
+  <h2>Tema ve Palet</h2>
+  <p>Paletin tek merkezi <code>lib/theme/palette.dart</code>; ekran dosyalarında hex tekrarı yoktur. Tema <code>ColorScheme.fromSeed</code> ile kurulur; açık + koyu tema Ayarlar'dan seçilir.</p>
+  <table>
+    <thead><tr><th>Rol</th><th>Renk</th><th>Kullanım</th></tr></thead>
+    <tbody>
+      <tr><td>Birincil</td><td><code>#1565C0</code></td><td>Harita ve birincil eylemler; koyu temada <code>primaryOnDark</code> (#64B5F6).</td></tr>
+      <tr><td>A noktası</td><td><code>#2E7D32</code></td><td>Başlangıç; koyu temada <code>pointAOnDark</code> (#81C784).</td></tr>
+      <tr><td>B noktası</td><td><code>#C62828</code></td><td>Bitiş; koyu temada <code>pointBOnDark</code> (#E57373).</td></tr>
+      <tr><td>Vurgu</td><td><code>#BF360C</code></td><td>Yalnızca uyarı/hata; koyu temada <code>accentWarningOnDark</code> (#FF8A65).</td></tr>
+      <tr><td>Nötr</td><td><code>#616161</code> / <code>#424242</code></td><td>Pasif kontroller ve güçlü pasif yüzeyler.</td></tr>
+    </tbody>
+  </table>
+  <p>Yeşil/kırmızı A/B için anlamsaldır (dekorasyon değil); vurgu rengi yalnızca dikkat anlarında kullanılır. Tüm metin/ikon kombinasyonları <code>test/contrast_test.dart</code> ile AA eşiğine karşı doğrulanır.</p>
+</section>
+
+<section id="yayin-kimligi">
+  <h2>Yayın Kimliği</h2>
+  <p>Yayın adı <strong>"Sepet Takip"</strong>'tir; paket/binary kimlikleri değişmemiştir.</p>
+  <table>
+    <thead><tr><th>Platform</th><th>Dosya</th><th>Alan</th></tr></thead>
+    <tbody>
+      <tr><td>Android</td><td><code>android/app/src/main/AndroidManifest.xml</code></td><td><code>android:label</code></td></tr>
+      <tr><td>iOS</td><td><code>ios/Runner/Info.plist</code></td><td><code>CFBundleDisplayName</code>, <code>CFBundleName</code></td></tr>
+      <tr><td>macOS</td><td><code>macos/Runner/Configs/AppInfo.xcconfig</code></td><td><code>PRODUCT_NAME</code></td></tr>
+      <tr><td>Web</td><td><code>web/manifest.json</code>, <code>web/index.html</code></td><td><code>name</code>/<code>short_name</code>, <code><title></code>, <code>apple-mobile-web-app-title</code></td></tr>
+      <tr><td>Linux</td><td><code>linux/runner/my_application.cc</code></td><td>header bar / pencere başlığı</td></tr>
+      <tr><td>Windows</td><td><code>windows/runner/main.cpp</code>, <code>windows/runner/Runner.rc</code></td><td>pencere başlığı, <code>FileDescription</code>, <code>ProductName</code></td></tr>
+      <tr><td>Uygulama içi</td><td><code>lib/main.dart</code></td><td><code>MaterialApp.title</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section id="testler">
+  <h2>Testler</h2>
+  <table>
+    <thead><tr><th>Dosya</th><th>Kapsam</th></tr></thead>
+    <tbody>
+      <tr><td><code>test/basket_model_test.dart</code></td><td>toMap/fromMap dönüşümleri, isim fallback'leri, copyWith, Haversine mesafe.</td></tr>
+      <tr><td><code>test/bearing_test.dart</code></td><td>initialBearing yönleri, normalizeAngle aralığı, shortestAngleDifference, cardinalLabel sektörleri, NaN/Infinity davranışı.</td></tr>
+      <tr><td><code>test/compass_rotation_test.dart</code></td><td>A→B hedef yönü hesabı (K/D/G/B hatları).</td></tr>
+      <tr><td><code>test/location_service_test.dart</code></td><td>Doğruluk eşiği kabul/ret kararları ve dinamik eşik değişimi.</td></tr>
+      <tr><td><code>test/map_viewmodel_test.dart</code></td><td>Seçim modu geçişleri, toggle/iptal, bildirim sayısı. (DB bağımlı metotlar cihazda manuel test edilir.)</td></tr>
+      <tr><td><code>test/share_service_test.dart</code></td><td>Paylaşım mesajı şablonu: isimler, koordinatlar, bearing, rotasyon, fallback'ler.</td></tr>
+      <tr><td><code>test/contrast_test.dart</code></td><td>WCAG oran hesabı, palet kimliği, açık/koyu tema kontrast eşikleri.</td></tr>
+      <tr><td><code>test/tile_cache_eviction_test.dart</code></td><td>Legacy eviction seçim mantığı: yaş aşımı, boyut aşımı, sıralama, sınır altında durma.</td></tr>
+    </tbody>
+  </table>
+  <p>Çalıştırma: <code>./flutter/bin/flutter test</code> · Statik analiz: <code>./flutter/bin/flutter analyze</code></p>
+</section>
+
+<section id="sinirlar">
+  <h2>Bilinen Sınırlar</h2>
+  <ul>
+    <li>Harita internet bağlantısı gerektirir; tam çevrimdışı harita paketi yoktur (yalnızca flutter_map'in bellek içi önbelleği).</li>
+    <li>Canlı yön oku ve pusula, cihaz sensörlerinin kullanılabilirliğine bağlıdır; veri yoksa durum UI'da bildirilir.</li>
+    <li>ETA, düz hat mesafesi ve anlık GPS hızına dayanır; su akıntısı, rüzgâr ve manevralar hesaba katılmaz.</li>
+    <li>Android'in tüm sürümlerini destekleme hedefi, toolchain ve eklenti minimum API sınırlarıyla birlikte doğrulanmalıdır.</li>
+    <li>Uygulama ikonu varsayılan kalır; marka ikonu bu dokümantasyonun kapsamı dışındadır.</li>
+  </ul>
+</section>
+
+</main>
+
+<footer>
+  Sepet Takip · Teknik Dokümantasyon · Kod içi yorumlar bu belgeye taşınmıştır.
+</footer>
+
+</body>
+</html>

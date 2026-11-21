@@ -62,7 +62,6 @@ class KatalogSayfasi extends StatelessWidget {
                       children: [
                         Expanded(
                           child: Text(
-                            // A noktası adı varsa onu göster, yoksa rota adı
                             _displayName(basket),
                             style: const TextStyle(
                               fontWeight: FontWeight.bold,
@@ -111,8 +110,6 @@ class KatalogSayfasi extends StatelessWidget {
                           ),
                           tooltip: 'Paylaş',
                           onPressed: () {
-                            // Geçmiş sepet paylaşımında anlık cihaz yönü
-                            // kullanılmaz; rotasyon "yön verisi yok" görünür.
                             ShareService().shareBasket(
                               basket,
                               targetPhoneNumber: backupPhoneNumber,
@@ -131,7 +128,7 @@ class KatalogSayfasi extends StatelessWidget {
                     ),
                     onTap: () {
                       viewModel.selectBasket(basket);
-                      Navigator.pop(context); // Harita ekranına geri dön
+                      Navigator.pop(context);
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content:
@@ -149,7 +146,6 @@ class KatalogSayfasi extends StatelessWidget {
     );
   }
 
-  /// Kayıtlı sepet yokken gösterilen boş durum: nedeni ve sonraki adımı söyler.
   Widget _buildEmptyState(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
     return Center(
@@ -188,7 +184,6 @@ class KatalogSayfasi extends StatelessWidget {
   }
 
   Widget _buildStatusBadge(BasketModel basket) {
-    // Koyu zemin + beyaz metin: her iki temada da WCAG AA kontrastını geçer.
     final background =
         basket.isCompleted ? Palette.pointA : Palette.accentWarning;
     return Container(
@@ -208,7 +203,6 @@ class KatalogSayfasi extends StatelessWidget {
     );
   }
 
-  /// Listede gösterilen ad: A noktası adı varsa o, yoksa rota adı.
   String _displayName(BasketModel basket) => basket.startName ?? basket.name;
 
   String _formatDateTime(DateTime dt) {

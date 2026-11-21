@@ -30,17 +30,14 @@ class BasketModel {
     this.isCompleted = false,
   });
 
-  /// A (başlangıç) noktasının görüntülenecek adı; atanmadıysa varsayılan etiket.
   String get startDisplayName => (startName == null || startName!.trim().isEmpty)
       ? 'A Noktası'
       : startName!;
 
-  /// B (bitiş) noktasının görüntülenecek adı; atanmadıysa varsayılan etiket.
   String get endDisplayName => (endName == null || endName!.trim().isEmpty)
       ? 'B Noktası'
       : endName!;
 
-  /// Sepetin başlangıç ve bitiş noktası arasındaki mesafeyi metre cinsinden döner.
   double get distanceInMeters {
     if (endLatitude == null || endLongitude == null) return 0.0;
     return _calculateDistance(
@@ -51,8 +48,6 @@ class BasketModel {
     );
   }
 
-  /// A→B (başlangıçtan bitişe) büyük daire başlangıç bearing'ini derece
-  /// cinsinden ([0, 360)) döner. Bitiş noktası yoksa null döner.
   double? get initialBearing {
     if (endLatitude == null || endLongitude == null) return null;
     return bearing.initialBearing(
@@ -61,10 +56,6 @@ class BasketModel {
     );
   }
 
-  /// Cihaz yönü [currentHeading] biliniyorsa, A→B hedef bearing'i ile mevcut
-  /// yön arasındaki en kısa işaretli açı farkını (rotasyon) derece cinsinden
-  /// döner: pozitif saat yönünde, negatif saat yönünün tersine dönüş.
-  /// Bitiş noktası veya cihaz yönü yoksa null döner.
   double? initialBearingFrom(double? currentHeading) {
     if (currentHeading == null) return null;
     final target = initialBearing;
@@ -72,21 +63,17 @@ class BasketModel {
     return bearing.shortestAngleDifference(target, currentHeading);
   }
 
-  /// Belirli bir koordinatın başlangıç noktasına olan uzaklığını metre cinsinden döner.
   double distanceToStart(double lat, double lon) {
     return _calculateDistance(lat, lon, startLatitude, startLongitude);
   }
 
-  /// Belirli bir koordinatın bitiş noktasına olan uzaklığını metre cinsinden döner.
   double? distanceToEnd(double lat, double lon) {
     if (endLatitude == null || endLongitude == null) return null;
     return _calculateDistance(lat, lon, endLatitude!, endLongitude!);
   }
 
-  /// Haversine formülü ile iki nokta arasındaki mesafeyi (metre) hesaplar.
-  /// Standart formül: CODES.md ile uyumlu (R = 6371000 m).
   static double _calculateDistance(double lat1, double lon1, double lat2, double lon2) {
-    const double R = 6371000.0; // Dünya yarıçapı (metre)
+    const double R = 6371000.0;
     final dLat = _toRadians(lat2 - lat1);
     final dLon = _toRadians(lon2 - lon1);
     final a = sin(dLat / 2) * sin(dLat / 2) +
@@ -98,12 +85,6 @@ class BasketModel {
 
   static double _toRadians(double degrees) => degrees * pi / 180.0;
 
-  /// Kullanıcının (C) sepet ipi (A→B) üzerindeki en yakın noktaya olan mesafesini
-  /// metre cinsinden döner. CODES.md'deki canliMesafeHesapla algoritması.
-  ///
-  /// Vektör izdüşümü ile A-B doğrusu üzerindeki en yakın P noktasını bulur,
-  /// ardından C-P arası Haversine mesafesini hesaplar.
-  /// Sepet tamamlanmamışsa null döner.
   double? distanceToLine(double cLat, double cLon) {
     if (endLatitude == null || endLongitude == null) return null;
 
@@ -113,12 +94,9 @@ class BasketModel {
     return _calculateDistance(cLat, cLon, projection.$1, projection.$2);
   }
 
-  /// Kullanıcının (C) konumunun sepet ipi (A→B) üzerindeki izdüşüm noktasını (P)
-  /// döner. Sonuç (lat, lon) tuple'ıdır. Sepet tamamlanmamışsa null döner.
   (double lat, double lon)? projectionPoint(double cLat, double cLon) {
     if (endLatitude == null || endLongitude == null) return null;
 
-    // Düzlem dönüşümü ile vektörler (CODES.md algoritması)
     final double xA = startLongitude, yA = startLatitude;
     final double xB = endLongitude!, yB = endLatitude!;
     final double xC = cLon, yC = cLat;
@@ -128,23 +106,19 @@ class BasketModel {
     final double acX = xC - xA;
     final double acY = yC - yA;
 
-    // Nokta çarpımı ve AB vektörünün uzunluğunun karesi
     final double dotProduct = acX * abX + acY * abY;
     final double abLenSq = abX * abX + abY * abY;
 
-    // İzdüşüm oranı (t): clamping [0, 1]
     double t = (abLenSq != 0.0) ? dotProduct / abLenSq : 0.0;
     if (t < 0.0) t = 0.0;
     if (t > 1.0) t = 1.0;
 
-    // İp üzerindeki en yakın P noktası
     final double pLat = yA + t * abY;
     final double pLon = xA + t * abX;
 
     return (pLat, pLon);
   }
 
-  /// Veritabanına kaydetmek için Map nesnesine dönüştürür.
   Map<String, dynamic> toMap() {
     return {
       if (id != null) 'id': id,
@@ -161,12 +135,10 @@ class BasketModel {
     };
   }
 
-  /// Veritabanından gelen Map nesnesinden BasketModel üretir.
   factory BasketModel.fromMap(Map<String, dynamic> map) {
     return BasketModel(
       id: map['id'] as int?,
       name: map['name'] as String,
-      // Eski kayıtlarda bu alanlar yoktur; null ile okunur (fallback).
       startName: map['start_name'] as String?,
       endName: map['end_name'] as String?,
       startLatitude: (map['start_latitude'] as num).toDouble(),
@@ -181,7 +153,6 @@ class BasketModel {
     );
   }
 
-  /// Yeni değerlerle kopyasını oluşturur.
   BasketModel copyWith({
     int? id,
     String? name,
