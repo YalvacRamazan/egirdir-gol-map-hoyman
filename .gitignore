@@ -63,3 +63,21 @@ graphify-out/
 android/build/
 # Widget Preview related
 .widget_preview/
+
+# Generated platform and SDK artifacts
+/android/.gradle/
+/android/.cxx/
+/android/app/src/main/java/
+/android/local.properties
+/android/gradlew
+/android/gradlew.bat
+/android/gradle/wrapper/gradle-wrapper.jar
+
+/ios/Flutter/Generated.xcconfig
+/ios/Flutter/ephemeral/
+/ios/Flutter/flutter_export_environment.sh
+/ios/Runner/GeneratedPluginRegistrant.*
+
+/linux/flutter/ephemeral/
+/macos/Flutter/ephemeral/
+/windows/flutter/ephemeral/
