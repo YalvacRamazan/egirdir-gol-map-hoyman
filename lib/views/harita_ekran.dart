@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
@@ -9,6 +10,7 @@ import 'package:latlong2/latlong.dart';
 import 'package:map/models/basket_model.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
+import 'package:map/services/sqlite_tile_provider.dart';
 import 'package:map/theme/palette.dart';
 import 'package:map/utils/bearing.dart';
 import 'package:map/utils/time_format.dart';
@@ -34,9 +36,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
 
-  final TileProvider _tileProvider = NetworkTileProvider();
+  final SqliteTileProvider _tileProvider = SqliteTileProvider();
 
   bool _isMeasureScheduled = false;
+
+  Timer? _proximityBannerTimer;
+  String? _lastSeenProximityAlert;
 
   final GlobalKey _bottomPanelKey = GlobalKey();
   double _bottomPanelHeight = 0;
@@ -63,19 +68,46 @@ class _HaritaEkranState extends State<HaritaEkran> {
       final pos = _viewModel.currentPosition!;
       _mapController.move(LatLng(pos.latitude, pos.longitude), 15.0);
     }
+
+    if (_viewModel.isFollowMode && _viewModel.currentPosition != null) {
+      final pos = _viewModel.currentPosition!;
+      _mapController.move(
+        LatLng(pos.latitude, pos.longitude),
+        _mapController.camera.zoom,
+      );
+    }
+
+    final alert = _viewModel.proximityAlert;
+    if (alert != null && alert != _lastSeenProximityAlert) {
+      _lastSeenProximityAlert = alert;
+      _showProximityFeedback();
+      _scheduleProximityBannerDismiss();
+    } else if (alert == null) {
+      _lastSeenProximityAlert = null;
+      _proximityBannerTimer?.cancel();
+    }
+  }
+
+  void _showProximityFeedback() {
+    HapticFeedback.heavyImpact();
+    SystemSound.play(SystemSoundType.alert);
+  }
+
+  void _scheduleProximityBannerDismiss() {
+    _proximityBannerTimer?.cancel();
+    _proximityBannerTimer = Timer(const Duration(seconds: 4), () {
+      if (mounted) _viewModel.clearProximityAlert();
+    });
   }
 
   @override
   void dispose() {
+    _proximityBannerTimer?.cancel();
     _viewModel.removeListener(_onViewModelChanged);
     _viewModel.dispose();
     _mapController.dispose();
     _tileProvider.dispose();
     super.dispose();
-  }
-
-  void _focusOnLocation(LatLng point, double zoom) {
-    _mapController.move(point, zoom);
   }
 
   void _measureBottomPanel() {
@@ -107,6 +139,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
             : _kHoymanGoluMerkezi;
 
         final showBasket = _viewModel.selectedBasket ?? _viewModel.activeBasket;
+        final target = _viewModel.resolveTargetPoint(currentPos);
 
         final basketDistance = showBasket != null
             ? _distanceToBasket(showBasket, currentPos)
@@ -126,6 +159,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   maxZoom: 18.0,
                   minZoom: 6.0,
                   onTap: (tapPosition, point) => _onMapTap(point),
+                  onMapEvent: (event) {
+                    if (event.source == MapEventSource.mapController) return;
+                    if (_viewModel.isFollowMode) {
+                      _viewModel.setFollowMode(false);
+                    }
+                  },
                 ),
                 children: [
                   TileLayer(
@@ -165,11 +204,55 @@ class _HaritaEkranState extends State<HaritaEkran> {
                             LatLng(showBasket.endLatitude!,
                                 showBasket.endLongitude!),
                           ],
-                          strokeWidth: 4.0,
+                          strokeWidth: 6.0,
+                          color: Colors.white.withValues(alpha: 0.7),
+                        ),
+                        Polyline(
+                          points: [
+                            LatLng(showBasket.startLatitude,
+                                showBasket.startLongitude),
+                            LatLng(showBasket.endLatitude!,
+                                showBasket.endLongitude!),
+                          ],
+                          strokeWidth: 3.5,
                           color: Palette.primary,
                         ),
                       ],
                     ),
+
+                  if (currentPos != null && target != null) ...[
+                    PolylineLayer(
+                      polylines: [
+                        Polyline(
+                          points: [
+                            userLatLng,
+                            LatLng(target.lat, target.lon),
+                          ],
+                          strokeWidth: 3.0,
+                          color: target.isStart ? Palette.pointA : Palette.pointB,
+                          pattern: StrokePattern.dashed(
+                            segments: const [10, 8],
+                          ),
+                        ),
+                      ],
+                    ),
+                    MarkerLayer(
+                      markers: [
+                        Marker(
+                          point: LatLng(
+                            (userLatLng.latitude + target.lat) / 2,
+                            (userLatLng.longitude + target.lon) / 2,
+                          ),
+                          width: 80,
+                          height: 24,
+                          child: _buildDistanceChip(
+                            _viewModel.distanceToTarget(currentPos),
+                            target.isStart ? Palette.pointA : Palette.pointB,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
 
                   MarkerLayer(
                     markers: [
@@ -182,43 +265,18 @@ class _HaritaEkranState extends State<HaritaEkran> {
                             label: _viewModel.currentHeading != null
                                 ? 'Kullanıcı konumu ve baktığı yön'
                                 : 'Kullanıcı konumu',
-                            child: Stack(
-                              alignment: Alignment.center,
-                              children: [
-                                if (_viewModel.currentHeading != null)
-                                  Transform.rotate(
-                                    angle: _viewModel.currentHeading! *
-                                        math.pi /
-                                        180,
-                                    child: Icon(
-                                      Icons.navigation,
-                                      size: 40,
-                                      color: Palette.userLocation,
-                                      shadows: const [
-                                        Shadow(
-                                            color: Colors.white,
-                                            blurRadius: 4),
-                                      ],
-                                    ),
-                                  ),
-                                Container(
-                                  width: 16,
-                                  height: 16,
-                                  decoration: BoxDecoration(
-                                    color: Palette.userLocation,
-                                    shape: BoxShape.circle,
-                                    border: Border.all(
-                                        color: Colors.white, width: 2),
-                                    boxShadow: const [
-                                      BoxShadow(
-                                        color: Colors.black26,
-                                        blurRadius: 4,
-                                        offset: Offset(0, 2),
-                                      )
-                                    ],
-                                  ),
-                                ),
-                              ],
+                            child: Transform.rotate(
+                              angle: (_viewModel.currentHeading ?? 0) *
+                                  math.pi /
+                                  180,
+                              child: const Icon(
+                                Icons.navigation,
+                                size: 40,
+                                color: Palette.userLocation,
+                                shadows: [
+                                  Shadow(color: Colors.white, blurRadius: 4),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -365,6 +423,17 @@ class _HaritaEkranState extends State<HaritaEkran> {
                       iconColor: Colors.white,
                       tooltip: 'GPS Boost (Hassas Mod)',
                       onPressed: () {
+                        if (_viewModel.isAutoBoostEnabled) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'Otomatik pil modu açık. Manuel geçiş için Ayarlar\'dan kapatın.',
+                              ),
+                              duration: Duration(seconds: 2),
+                            ),
+                          );
+                          return;
+                        }
                         _viewModel.toggleBoostMode(!_viewModel.isBoostMode);
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -437,6 +506,24 @@ class _HaritaEkranState extends State<HaritaEkran> {
                                 'Varış ~${formatHourMinute(estimatedArrival)}',
                           ),
                         ],
+                        ListenableBuilder(
+                          listenable: _tileProvider.offline,
+                          builder: (context, _) {
+                            if (!_tileProvider.offline.value) {
+                              return const SizedBox.shrink();
+                            }
+                            return Padding(
+                              padding: const EdgeInsets.only(left: 8),
+                              child: Semantics(
+                                label: 'Çevrimdışı: harita önbellekten gösteriliyor',
+                                child: const StatusPill(
+                                  icon: Icons.wifi_off,
+                                  text: 'Çevrimdışı: önbellekten gösteriliyor',
+                                ),
+                              ),
+                            );
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -449,6 +536,17 @@ class _HaritaEkranState extends State<HaritaEkran> {
                   left: 12,
                   right: 12,
                   child: _buildSelectionBanner(context),
+                ),
+
+              if (_viewModel.proximityAlert != null)
+                Positioned(
+                  top: MediaQuery.of(context).padding.top +
+                      (_viewModel.selectionMode != MapPointSelectionMode.none
+                          ? 152
+                          : 104),
+                  left: 12,
+                  right: 12,
+                  child: _buildProximityBanner(context),
                 ),
 
               if (_viewModel.currentHeading != null && currentPos == null)
@@ -502,12 +600,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
               ),
 
               if (basketDistance != null &&
-                  _viewModel.selectionMode == MapPointSelectionMode.none)
-                Positioned(
-                  top: MediaQuery.of(context).padding.top + 112,
-                  left: 12,
-                  child: DistanceGauge(distanceMeters: basketDistance),
-                ),
+                  _viewModel.selectionMode == MapPointSelectionMode.none &&
+                  _viewModel.proximityAlert == null)
+                 Positioned(
+                   top: MediaQuery.of(context).padding.top + 112,
+                   left: 12,
+                   child: DistanceGauge(distanceMeters: basketDistance),
+                 ),
 
               Positioned(
                 bottom: _getBottomOffset(),
@@ -515,18 +614,27 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 child: FloatingActionButton(
                   backgroundColor: Theme.of(context).colorScheme.surface,
                   foregroundColor: Theme.of(context).colorScheme.primary,
-                  tooltip: 'Konumuma Git',
+                  tooltip: _viewModel.isFollowMode
+                      ? 'Konum Takibini Bırak'
+                      : 'Konuma Sabitle',
                   onPressed: () {
-                    if (currentPos != null) {
-                      _focusOnLocation(userLatLng, 15.0);
-                    } else {
+                    if (currentPos == null) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                             content: Text('Konumunuz henüz alınamadı.')),
                       );
+                      return;
+                    }
+                    _viewModel.setFollowMode(!_viewModel.isFollowMode);
+                    if (_viewModel.isFollowMode) {
+                      _mapController.move(userLatLng, 15.0);
                     }
                   },
-                  child: const Icon(Icons.my_location),
+                  child: Icon(
+                    _viewModel.isFollowMode
+                        ? Icons.location_searching
+                        : Icons.my_location,
+                  ),
                 ),
               ),
 
@@ -1087,6 +1195,65 @@ class _HaritaEkranState extends State<HaritaEkran> {
           fontSize: 13,
           fontWeight: FontWeight.bold,
         ),
+      ),
+    );
+  }
+
+  Widget _buildDistanceChip(double? distanceMeters, Color color) {
+    if (distanceMeters == null) return const SizedBox.shrink();
+    return Semantics(
+      label: 'Hedefe uzaklık: ${distanceMeters.round()} metre',
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.92),
+          borderRadius: BorderRadius.circular(6),
+          border: Border.all(color: color, width: 1),
+        ),
+        child: Text(
+          '${distanceMeters.round()} m',
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildProximityBanner(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(12, 6, 6, 6),
+      decoration: BoxDecoration(
+        color: Palette.accentWarning,
+        borderRadius: BorderRadius.circular(12),
+        boxShadow: const [
+          BoxShadow(color: Colors.black26, blurRadius: 6, offset: Offset(0, 2)),
+        ],
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active, color: Colors.white, size: 20),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              _viewModel.proximityAlert!,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          IconButton(
+            icon: const Icon(Icons.close, color: Colors.white, size: 20),
+            tooltip: 'Uyarıyı kapat',
+            padding: EdgeInsets.zero,
+            constraints: const BoxConstraints(minWidth: 44, minHeight: 44),
+            onPressed: _viewModel.clearProximityAlert,
+          ),
+        ],
       ),
     );
   }

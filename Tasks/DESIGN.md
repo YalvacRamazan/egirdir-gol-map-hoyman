@@ -78,7 +78,7 @@ Aktif palet: 3 çekirdek + 1 vurgu + nötr. (R-29)
 
 ## Bilinen sınırlar
 
-- Harita altlığı OpenStreetMap tabanlıdır ve internetten render edilir. SQLite tile önbelleği yalnızca sınırlı ve yönetilebilir geçici depolama olarak kullanılır; tam harita çevrimdışı paketi oluşturulmaz.
+- Harita altlığı OpenStreetMap tabanlıdır ve internetten render edilir. Hoyman Gölü bölgesi (bbox, zoom 10-15) kalıcı tile deposu olarak cihaza indirilebilir; bölge dışı tile'lar sınırlı geçici önbellekte tutulur.
 - Canlı yön oku ve pusula, cihazın konum/yön sensörü verilerinin kullanılabilirliğine bağlıdır.
 - Android'in tüm sürümlerini destekleme gereksinimi, seçilen Flutter/Android toolchain'i ve eklentilerin minimum API sınırlarıyla birlikte doğrulanmalıdır.
 - Uygulama logosu/ikonu bu belgenin kapsamı dışındadır; mevcut varsayılan ikon korunur.

@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_map/flutter_map.dart';
 
+import 'hoyman_tile_region.dart';
 import 'sqlite_tile_cache_service.dart';
 
 class SqliteTileProvider extends TileProvider {
@@ -100,7 +101,13 @@ class _SqliteTileImageProvider
         final bytes = await response
             .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
         final data = Uint8List.fromList(bytes);
-        unawaited(cache.saveTile(z, x, y, data));
+        unawaited(cache.saveTile(
+          z,
+          x,
+          y,
+          data,
+          permanent: HoymanTileRegion.containsTile(z, x, y),
+        ));
         return await _decodeBytes(data, decode);
       }
       _reportNetworkError();

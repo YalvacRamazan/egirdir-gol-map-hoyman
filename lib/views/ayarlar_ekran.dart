@@ -1,7 +1,14 @@
+import 'dart:async';
+import 'dart:io';
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:map/services/region_downloader.dart';
 import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
+import 'package:map/services/sqlite_tile_cache_service.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class AyarlarEkran extends StatefulWidget {
   final MapViewModel viewModel;
@@ -17,6 +24,10 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
   final _phoneController = TextEditingController();
   double _accuracyThreshold = 15.0;
   String _themeMode = 'system';
+  bool _autoBoostEnabled = true;
+  bool _proximityAlertEnabled = true;
+  double _proximityThreshold = 25.0;
+  bool _backupPermissionGranted = false;
 
   @override
   void initState() {
@@ -24,6 +35,36 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     _phoneController.text = _settingsService.settings.backupPhoneNumber;
     _accuracyThreshold = _settingsService.settings.gpsAccuracyThreshold;
     _themeMode = _settingsService.settings.themeMode;
+    _autoBoostEnabled = _settingsService.settings.autoBoostEnabled;
+    _proximityAlertEnabled = _settingsService.settings.proximityAlertEnabled;
+    _proximityThreshold = _settingsService.settings.proximityThreshold;
+    _readBackupPermission();
+  }
+
+  Future<void> _readBackupPermission() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    final granted = await Permission.manageExternalStorage.isGranted;
+    if (mounted) setState(() => _backupPermissionGranted = granted);
+  }
+
+  Future<void> _ensureBackupPermission() async {
+    if (kIsWeb || !Platform.isAndroid) return;
+    if (await Permission.manageExternalStorage.isGranted) {
+      if (mounted) setState(() => _backupPermissionGranted = true);
+      return;
+    }
+    final result = await Permission.manageExternalStorage.request();
+    if (mounted) setState(() => _backupPermissionGranted = result.isGranted);
+  }
+
+  String _backupStatusText() {
+    if (kIsWeb || !Platform.isAndroid) {
+      return 'Yedek: uygulama belgeleri klasöründe (sepetler.json)';
+    }
+    if (!_backupPermissionGranted) {
+      return 'Kalıcı yedek izni verilmedi (yedek uygulama klasöründe). Dokunarak izin verin.';
+    }
+    return 'Yedek: Documents/GolSepetTakip/sepetler.json';
   }
 
   @override
@@ -37,10 +78,17 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
       backupPhoneNumber: _phoneController.text.trim(),
       gpsAccuracyThreshold: _accuracyThreshold,
       themeMode: _themeMode,
+      autoBoostEnabled: _autoBoostEnabled,
+      proximityAlertEnabled: _proximityAlertEnabled,
+      proximityThreshold: _proximityThreshold,
     );
 
     await _settingsService.saveSettings(updatedSettings);
     widget.viewModel.updateAccuracyThreshold(_accuracyThreshold);
+    widget.viewModel.configureProximity(
+      enabled: _proximityAlertEnabled,
+      threshold: _proximityThreshold,
+    );
 
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -57,6 +105,9 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
         backupPhoneNumber: _phoneController.text.trim(),
         gpsAccuracyThreshold: _accuracyThreshold,
         themeMode: value,
+        autoBoostEnabled: _autoBoostEnabled,
+        proximityAlertEnabled: _proximityAlertEnabled,
+        proximityThreshold: _proximityThreshold,
       ),
     );
   }
@@ -148,7 +199,7 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             ),
             const SizedBox(height: 20),
 
-            _sectionTitle(context, 'GPS ve Pil Ayarları (J7 Prime Uyumlu)'),
+            _sectionTitle(context, 'GPS ve Pil Ayarları'),
             const SizedBox(height: 8),
             Card(
               elevation: 1,
@@ -180,6 +231,20 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                       },
                     ),
                     const Divider(height: 20),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text(
+                        'Pil seviyesine göre otomatik GPS modu',
+                      ),
+                      subtitle: const Text(
+                        'Pil %50\'nin üstündeyse yüksek doğruluk, altındaysa '
+                        'tasarruf modu kullanılır. Kapatırsanız GPS modunu '
+                        'elle seçersiniz.',
+                      ),
+                      value: _autoBoostEnabled,
+                      onChanged: (v) => setState(() => _autoBoostEnabled = v),
+                    ),
+                    const Divider(height: 20),
                     Row(
                       children: [
                         Icon(Icons.map_outlined,
@@ -194,8 +259,9 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                                 style: TextStyle(fontWeight: FontWeight.w600),
                               ),
                               Text(
-                                'OpenStreetMap tile\'ları internetten anlık '
-                                'yüklenir; cihazda kalıcı olarak birikmez.',
+                                'Hoyman Gölü bölgesindeki tile\'lar cihaza '
+                                'kalıcı kaydedilir; bölge dışı tile\'lar 50MB '
+                                'geçici önbellekte tutulur.',
                                 style: TextStyle(
                                     fontSize: 13,
                                     color: scheme.onSurfaceVariant),
@@ -205,6 +271,97 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                         ),
                       ],
                     ),
+                    const Divider(height: 20),
+                    ListenableBuilder(
+                      listenable: RegionDownloader().progress,
+                      builder: (context, _) {
+                        final p = RegionDownloader().progress.value;
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: double.infinity,
+                              child: ElevatedButton.icon(
+                                onPressed: p?.running == true
+                                    ? () => RegionDownloader().cancel()
+                                    : () => unawaited(RegionDownloader()
+                                        .downloadRegion(
+                                            SqliteTileCacheService())),
+                                icon: Icon(p?.running == true
+                                    ? Icons.cancel
+                                    : Icons.download),
+                                label: Text(p?.running == true
+                                    ? 'İndirmeyi Durdur'
+                                    : 'Hoyman Gölü Haritasını Cihaza İndir'),
+                              ),
+                            ),
+                            if (p?.running == true) ...[
+                              const SizedBox(height: 8),
+                              LinearProgressIndicator(
+                                value:
+                                    p!.total == 0 ? null : p.done / p.total,
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${p.done}/${p.total} tile',
+                                style: const TextStyle(fontSize: 13),
+                              ),
+                            ] else if (p != null && !p.running)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 4),
+                                child: Text(
+                                  'Sonuç: ${p.done} tile indirildi, '
+                                  '${p.failed} hatalı.',
+                                  style: const TextStyle(fontSize: 13),
+                                ),
+                              ),
+                          ],
+                        );
+                      },
+                    ),
+                   ],
+                 ),
+               ),
+             ),
+             const SizedBox(height: 20),
+
+            _sectionTitle(context, 'Konum Takibi ve Uyarılar'),
+            const SizedBox(height: 8),
+            Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Padding(
+                padding: const EdgeInsets.all(16.0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('Hedefe yaklaşınca uyar'),
+                      subtitle: const Text(
+                        'Seçili A/B noktasına belirtilen mesafede inince '
+                        'uyarı verir.',
+                      ),
+                      value: _proximityAlertEnabled,
+                      onChanged: (v) =>
+                          setState(() => _proximityAlertEnabled = v),
+                    ),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'Uyarı Mesafesi',
+                      style: TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    const SizedBox(height: 8),
+                    SegmentedButton<double>(
+                      segments: const [
+                        ButtonSegment(value: 10, label: Text('10 m')),
+                        ButtonSegment(value: 25, label: Text('25 m')),
+                        ButtonSegment(value: 50, label: Text('50 m')),
+                      ],
+                      selected: {_proximityThreshold},
+                      onSelectionChanged: (s) =>
+                          setState(() => _proximityThreshold = s.first),
+                    ),
                   ],
                 ),
               ),
@@ -213,6 +370,39 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
 
             _sectionTitle(context, 'Veri Yönetimi'),
             const SizedBox(height: 8),
+            Card(
+              elevation: 1,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: _backupPermissionGranted
+                    ? null
+                    : () => unawaited(_ensureBackupPermission()),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    children: [
+                      Icon(Icons.folder_copy,
+                          size: 20, color: scheme.onSurfaceVariant),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Text(
+                          _backupStatusText(),
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      if (!_backupPermissionGranted)
+                        Icon(Icons.chevron_right,
+                            size: 20, color: scheme.onSurfaceVariant),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(

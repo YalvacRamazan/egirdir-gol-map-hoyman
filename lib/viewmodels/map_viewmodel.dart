@@ -3,9 +3,13 @@ import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:map/models/basket_model.dart';
+import 'package:map/services/battery_service.dart';
 import 'package:map/services/compass_service.dart';
 import 'package:map/services/database_service.dart';
 import 'package:map/services/location_service.dart';
+import 'package:map/services/persistent_backup_service.dart';
+import 'package:map/services/settings_service.dart';
+import 'package:map/viewmodels/proximity_policy.dart';
 
 enum MapPointSelectionMode { none, selectA, selectB }
 
@@ -13,6 +17,9 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   final DatabaseService _dbService = DatabaseService();
   final LocationService _locationService = LocationService();
   final CompassService _compassService = CompassService();
+  final SettingsService _settingsService = SettingsService();
+  final BatteryService _batteryService = BatteryService();
+  final PersistentBackupService _backupService = PersistentBackupService();
 
   List<BasketModel> _baskets = [];
   BasketModel? _activeBasket;
@@ -41,6 +48,16 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
 
   MapPointSelectionMode _selectionMode = MapPointSelectionMode.none;
 
+  bool _isFollowMode = false;
+
+  static const List<double> proximityOptions = [10, 25, 50];
+  bool _proximityAlertEnabled = true;
+  final ProximityPolicy _proximityPolicy =
+      ProximityPolicy(initialThreshold: 25.0);
+  String? _proximityAlert;
+
+  DateTime? _lastBatteryCheck;
+
   List<BasketModel> get baskets => _baskets;
   BasketModel? get activeBasket => _activeBasket;
   BasketModel? get selectedBasket => _selectedBasket;
@@ -58,6 +75,9 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   String get permissionDeniedReason => _permissionDeniedReason;
   bool get isPermissionPermanentlyDenied => _isPermissionPermanentlyDenied;
   MapPointSelectionMode get selectionMode => _selectionMode;
+  bool get isFollowMode => _isFollowMode;
+  String? get proximityAlert => _proximityAlert;
+  bool get isAutoBoostEnabled => _settingsService.settings.autoBoostEnabled;
 
   double? get currentHeading => _currentHeading;
 
@@ -74,7 +94,13 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     _startCompass();
 
+    configureProximity(
+      enabled: _settingsService.settings.proximityAlertEnabled,
+      threshold: _settingsService.settings.proximityThreshold,
+    );
+
     try {
+      await _restoreFromBackupIfEmpty();
       await loadBaskets();
 
       final activeList = await _dbService.getActiveBaskets();
@@ -103,6 +129,8 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
         _isPermissionPermanentlyDenied = permResult.isPermanentlyDenied;
         _gpsStatusText = 'GPS İzni Verilmedi';
       }
+
+      await _applyBatteryPolicy();
     } catch (e, stack) {
       debugPrint('MapViewModel.init() başlatma hatası: $e\n$stack');
       _gpsStatusText = 'Başlatma hatası: $e';
@@ -155,6 +183,8 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
         _isGpsError = false;
         _gpsStatusText =
             'GPS Aktif (Hassasiyet: ${position.accuracy.toStringAsFixed(1)}m)';
+        _checkProximity(position);
+        unawaited(_applyBatteryPolicy());
         _safeNotify();
       },
       onError: (error) {
@@ -183,6 +213,92 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _safeNotify();
   }
 
+  void setFollowMode(bool enable) {
+    if (_isFollowMode == enable) return;
+    _isFollowMode = enable;
+    _safeNotify();
+  }
+
+  /// Uzaklık çizgisi ve yakınlık uyarısı için ortak hedef nokta.
+  /// Aktif kayıtta A noktası; tamamlanmış sepette mesafe olarak en yakın uç.
+  ({double lat, double lon, bool isStart})? resolveTargetPoint(Position? pos) {
+    if (pos == null) return null;
+    return targetPointForBasket(
+      _selectedBasket ?? _activeBasket,
+      pos.latitude,
+      pos.longitude,
+    );
+  }
+
+  double? distanceToTarget(Position? pos) {
+    final target = resolveTargetPoint(pos);
+    if (target == null || pos == null) return null;
+    return _distanceBetween(pos, target.lat, target.lon);
+  }
+
+  double _distanceBetween(Position pos, double lat, double lon) {
+    const calc = Distance();
+    return calc.distance(
+      LatLng(pos.latitude, pos.longitude),
+      LatLng(lat, lon),
+    );
+  }
+
+  void configureProximity({required bool enabled, required double threshold}) {
+    _proximityAlertEnabled = enabled;
+    _proximityPolicy.configure(threshold: threshold);
+    _safeNotify();
+  }
+
+  void clearProximityAlert() {
+    if (_proximityAlert == null) return;
+    _proximityAlert = null;
+    _safeNotify();
+  }
+
+  void _checkProximity(Position position) {
+    final alert = _proximityPolicy.evaluate(
+      enabled: _proximityAlertEnabled,
+      basket: _selectedBasket ?? _activeBasket,
+      lat: position.latitude,
+      lon: position.longitude,
+      now: DateTime.now(),
+    );
+    if (alert == null) return;
+    _proximityAlert = alert;
+    _safeNotify();
+  }
+
+  Future<void> _applyBatteryPolicy() async {
+    if (!_settingsService.settings.autoBoostEnabled) return;
+    final now = DateTime.now();
+    if (_lastBatteryCheck != null &&
+        now.difference(_lastBatteryCheck!) < const Duration(seconds: 30)) {
+      return;
+    }
+    _lastBatteryCheck = now;
+
+    final shouldBoost = await _batteryService.shouldUseBoost();
+    if (_isDisposed) return;
+    if (shouldBoost != _locationService.isBoostMode) {
+      _locationService.toggleBoostMode(shouldBoost);
+      if (_isTracking) startLocationTracking();
+      _safeNotify();
+    }
+  }
+
+  Future<void> _syncBackup() async {
+    await _backupService.exportAll(_baskets);
+  }
+
+  Future<void> _restoreFromBackupIfEmpty() async {
+    final existing = await _dbService.getAllBaskets();
+    if (existing.isNotEmpty) return;
+    final backup = await _backupService.loadBackup();
+    if (backup.isEmpty) return;
+    await _dbService.restoreBaskets(backup);
+  }
+
   void updateAccuracyThreshold(double value) {
     _locationService.accuracyThreshold = value;
     if (_currentPosition != null) {
@@ -209,6 +325,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _selectedBasket = _activeBasket;
 
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
     return true;
   }
@@ -229,6 +346,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _selectedBasket = completedBasket;
 
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
     return completedBasket;
   }
@@ -281,6 +399,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     }
 
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
     return true;
   }
@@ -307,6 +426,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _selectedBasket = completedBasket;
 
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
     return completedBasket;
   }
@@ -321,6 +441,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     if (_activeBasket?.id == updated.id) _activeBasket = updated;
     if (_selectedBasket?.id == updated.id) _selectedBasket = updated;
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
   }
 
@@ -334,6 +455,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     if (_activeBasket?.id == updated.id) _activeBasket = updated;
     if (_selectedBasket?.id == updated.id) _selectedBasket = updated;
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
   }
 
@@ -355,6 +477,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
       _activeBasket = null;
       _selectedBasket = null;
       await loadBaskets();
+      await _syncBackup();
       _safeNotify();
     }
   }
@@ -373,6 +496,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
       _activeBasket = null;
     }
     await loadBaskets();
+    await _syncBackup();
     _safeNotify();
   }
 
@@ -383,6 +507,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
         startLocationTracking();
       }
       _startCompass();
+      unawaited(_applyBatteryPolicy());
     } else if (state == AppLifecycleState.paused) {
       if (_activeBasket == null && _isTracking) {
         stopLocationTracking();

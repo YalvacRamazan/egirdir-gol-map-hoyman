@@ -160,4 +160,22 @@ class DatabaseService {
     final db = await database;
     await db!.delete('baskets');
   }
+
+  /// JSON yedeğinden geri yükleme: aynı id'lerle sepetleri yeniden kurar.
+  Future<void> restoreBaskets(List<BasketModel> baskets) async {
+    if (kIsWeb) {
+      _webBaskets.addAll(baskets);
+      return;
+    }
+    final db = await database;
+    final batch = db!.batch();
+    for (final b in baskets) {
+      batch.insert(
+        'baskets',
+        b.toMap(),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
 }

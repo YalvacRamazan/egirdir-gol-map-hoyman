@@ -2,7 +2,8 @@
     <application
         android:label="Sepet Takip"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher">
+        android:icon="@mipmap/ic_launcher"
+        android:requestLegacyExternalStorage="true">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -35,6 +36,14 @@
     <!-- İnternet izni: OpenStreetMap tile indirme ve wa.me/WhatsApp bağlantıları için gereklidir.
          Release derlemede de etkili olması için main manifest'te tanımlanır. -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- Kalıcı yedek izinleri: Sepet verileri public Documents/GolSepetTakip klasörüne yazılır.
+         MANAGE_EXTERNAL_STORAGE (API 30+), WRITE_EXTERNAL_STORAGE (API 24-28);
+         API 29 için requestLegacyExternalStorage köprüsü kullanılır. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+    <uses-permission
+        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
+        android:maxSdkVersion="28" />
 
     <!-- Konum izinleri: Kaba ve hassas konum için her ikisi de gereklidir -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

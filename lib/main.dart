@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:map/services/settings_service.dart';
+import 'package:map/services/sqlite_tile_cache_service.dart';
 import 'package:map/theme/palette.dart';
 import 'package:map/views/harita_ekran.dart';
 
@@ -7,6 +8,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
   await SettingsService().init();
+  await SqliteTileCacheService().init();
 
   runApp(const KonumTakipApp());
 }

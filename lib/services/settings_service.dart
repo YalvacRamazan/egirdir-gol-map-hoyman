@@ -9,17 +9,26 @@ class AppSettings {
   String backupPhoneNumber;
   double gpsAccuracyThreshold;
   String themeMode;
+  bool autoBoostEnabled;
+  bool proximityAlertEnabled;
+  double proximityThreshold;
 
   AppSettings({
     this.backupPhoneNumber = '',
     this.gpsAccuracyThreshold = 15.0,
     this.themeMode = 'system',
+    this.autoBoostEnabled = true,
+    this.proximityAlertEnabled = true,
+    this.proximityThreshold = 25.0,
   });
 
   Map<String, dynamic> toJson() => {
         'backupPhoneNumber': backupPhoneNumber,
         'gpsAccuracyThreshold': gpsAccuracyThreshold,
         'themeMode': themeMode,
+        'autoBoostEnabled': autoBoostEnabled,
+        'proximityAlertEnabled': proximityAlertEnabled,
+        'proximityThreshold': proximityThreshold,
       };
 
   factory AppSettings.fromJson(Map<String, dynamic> json) {
@@ -27,6 +36,9 @@ class AppSettings {
       backupPhoneNumber: json['backupPhoneNumber'] as String? ?? '',
       gpsAccuracyThreshold: (json['gpsAccuracyThreshold'] as num?)?.toDouble() ?? 15.0,
       themeMode: json['themeMode'] as String? ?? 'system',
+      autoBoostEnabled: json['autoBoostEnabled'] as bool? ?? true,
+      proximityAlertEnabled: json['proximityAlertEnabled'] as bool? ?? true,
+      proximityThreshold: (json['proximityThreshold'] as num?)?.toDouble() ?? 25.0,
     );
   }
 }

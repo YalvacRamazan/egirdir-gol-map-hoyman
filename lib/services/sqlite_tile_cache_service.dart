@@ -16,7 +16,7 @@ class SqliteTileCacheService {
 
   static const Duration maxCacheAge = Duration(days: 30);
 
-  static const int _dbVersion = 2;
+  static const int _dbVersion = 3;
 
   Database? _db;
 
@@ -46,6 +46,7 @@ class SqliteTileCacheService {
               tile_data   BLOB    NOT NULL,
               timestamp   INTEGER NOT NULL,
               size        INTEGER NOT NULL,
+              is_permanent INTEGER NOT NULL DEFAULT 0,
               PRIMARY KEY (zoom_level, tile_column, tile_row)
             )
           ''');
@@ -57,6 +58,10 @@ class SqliteTileCacheService {
             await db.execute(
                 'ALTER TABLE tiles ADD COLUMN size INTEGER NOT NULL DEFAULT 0');
             await db.execute('UPDATE tiles SET size = LENGTH(tile_data)');
+          }
+          if (oldVersion < 3) {
+            await db.execute(
+                'ALTER TABLE tiles ADD COLUMN is_permanent INTEGER NOT NULL DEFAULT 0');
           }
         },
       );
@@ -82,7 +87,13 @@ class SqliteTileCacheService {
     }
   }
 
-  Future<void> saveTile(int zoom, int x, int y, Uint8List data) {
+  Future<void> saveTile(
+    int zoom,
+    int x,
+    int y,
+    Uint8List data, {
+    bool permanent = false,
+  }) {
     if (_db == null) return Future.value();
     return _enqueue(() async {
       try {
@@ -95,6 +106,7 @@ class SqliteTileCacheService {
             'tile_data': data,
             'timestamp': DateTime.now().millisecondsSinceEpoch,
             'size': data.length,
+            'is_permanent': permanent ? 1 : 0,
           },
           conflictAlgorithm: ConflictAlgorithm.replace,
         );
@@ -102,6 +114,23 @@ class SqliteTileCacheService {
       }
       await evictIfNeeded();
     });
+  }
+
+  /// Tile önbellekte var mı (indirme atlama kontrolü için).
+  Future<bool> hasTile(int zoom, int x, int y) async {
+    if (_db == null) return false;
+    try {
+      final rows = await _db!.query(
+        'tiles',
+        columns: ['zoom_level'],
+        where: 'zoom_level = ? AND tile_column = ? AND tile_row = ?',
+        whereArgs: [zoom, x, y],
+        limit: 1,
+      );
+      return rows.isNotEmpty;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<T> _enqueue<T>(Future<T> Function() task) {
@@ -116,8 +145,8 @@ class SqliteTileCacheService {
     if (_evictionInProgress) return;
     _evictionInProgress = true;
     try {
-      final rows =
-          await db.rawQuery('SELECT rowid AS id, timestamp, size FROM tiles');
+      final rows = await db.rawQuery(
+          'SELECT rowid AS id, timestamp, size FROM tiles WHERE is_permanent = 0');
       final tiles = rows.map(TileMeta.fromRow).toList();
       final ids = selectTileIdsToEvict(
         tiles,
@@ -132,7 +161,8 @@ class SqliteTileCacheService {
         final chunk = ids.skip(i).take(chunkSize).toList();
         await db.delete(
           'tiles',
-          where: 'rowid IN (${List.filled(chunk.length, '?').join(', ')})',
+          where:
+              'rowid IN (${List.filled(chunk.length, '?').join(', ')}) AND is_permanent = 0',
           whereArgs: chunk,
         );
       }
@@ -146,18 +176,45 @@ class SqliteTileCacheService {
     if (_db == null) return const CacheStats(tileCount: 0, sizeBytes: 0);
     try {
       final result = await _db!.rawQuery('''
-        SELECT COUNT(*) AS cnt,
+        SELECT is_permanent AS permanent,
+               COUNT(*) AS cnt,
                SUM(size) AS total,
                MIN(timestamp) AS oldest,
                MAX(timestamp) AS newest
         FROM tiles
+        GROUP BY is_permanent
       ''');
-      final row = result.first;
+      var tileCount = 0;
+      var sizeBytes = 0;
+      var permanentTileCount = 0;
+      var permanentSizeBytes = 0;
+      int? oldest;
+      int? newest;
+      for (final row in result) {
+        final cnt = (row['cnt'] as int?) ?? 0;
+        final total = (row['total'] as int?) ?? 0;
+        tileCount += cnt;
+        sizeBytes += total;
+        if ((row['permanent'] as int?) == 1) {
+          permanentTileCount = cnt;
+          permanentSizeBytes = total;
+        }
+        final rowOldest = row['oldest'] as int?;
+        final rowNewest = row['newest'] as int?;
+        if (rowOldest != null && (oldest == null || rowOldest < oldest)) {
+          oldest = rowOldest;
+        }
+        if (rowNewest != null && (newest == null || rowNewest > newest)) {
+          newest = rowNewest;
+        }
+      }
       return CacheStats(
-        tileCount: (row['cnt'] as int?) ?? 0,
-        sizeBytes: (row['total'] as int?) ?? 0,
-        oldestTimestamp: row['oldest'] as int?,
-        newestTimestamp: row['newest'] as int?,
+        tileCount: tileCount,
+        sizeBytes: sizeBytes,
+        oldestTimestamp: oldest,
+        newestTimestamp: newest,
+        permanentTileCount: permanentTileCount,
+        permanentSizeBytes: permanentSizeBytes,
       );
     } catch (_) {
       return const CacheStats(tileCount: 0, sizeBytes: 0);
@@ -184,16 +241,20 @@ class TileMeta {
 
   final int size;
 
+  final bool isPermanent;
+
   const TileMeta({
     required this.id,
     required this.timestamp,
     required this.size,
+    this.isPermanent = false,
   });
 
   factory TileMeta.fromRow(Map<String, Object?> row) => TileMeta(
         id: (row['id'] as num).toInt(),
         timestamp: (row['timestamp'] as int?) ?? 0,
         size: (row['size'] as int?) ?? 0,
+        isPermanent: (row['is_permanent'] as int?) == 1,
       );
 }
 
@@ -209,6 +270,7 @@ List<int> selectTileIdsToEvict(
   final survivors = <TileMeta>[];
   var survivorBytes = 0;
   for (final tile in tiles) {
+    if (tile.isPermanent) continue;
     if (tile.timestamp < cutoff) {
       expired.add(tile);
     } else {
@@ -242,11 +304,17 @@ class CacheStats {
 
   final int? newestTimestamp;
 
+  final int permanentTileCount;
+
+  final int permanentSizeBytes;
+
   const CacheStats({
     required this.tileCount,
     required this.sizeBytes,
     this.oldestTimestamp,
     this.newestTimestamp,
+    this.permanentTileCount = 0,
+    this.permanentSizeBytes = 0,
   });
 
   String get formattedSize {
