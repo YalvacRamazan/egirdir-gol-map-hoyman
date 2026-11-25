@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
@@ -8,7 +7,6 @@ import 'package:map/services/settings_service.dart';
 import 'package:map/services/share_service.dart';
 import 'package:map/services/sqlite_tile_cache_service.dart';
 import 'package:map/viewmodels/map_viewmodel.dart';
-import 'package:permission_handler/permission_handler.dart';
 
 class AyarlarEkran extends StatefulWidget {
   final MapViewModel viewModel;
@@ -27,7 +25,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
   bool _autoBoostEnabled = true;
   bool _proximityAlertEnabled = true;
   double _proximityThreshold = 25.0;
-  bool _backupPermissionGranted = false;
 
   @override
   void initState() {
@@ -38,33 +35,13 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     _autoBoostEnabled = _settingsService.settings.autoBoostEnabled;
     _proximityAlertEnabled = _settingsService.settings.proximityAlertEnabled;
     _proximityThreshold = _settingsService.settings.proximityThreshold;
-    _readBackupPermission();
-  }
-
-  Future<void> _readBackupPermission() async {
-    if (kIsWeb || !Platform.isAndroid) return;
-    final granted = await Permission.manageExternalStorage.isGranted;
-    if (mounted) setState(() => _backupPermissionGranted = granted);
-  }
-
-  Future<void> _ensureBackupPermission() async {
-    if (kIsWeb || !Platform.isAndroid) return;
-    if (await Permission.manageExternalStorage.isGranted) {
-      if (mounted) setState(() => _backupPermissionGranted = true);
-      return;
-    }
-    final result = await Permission.manageExternalStorage.request();
-    if (mounted) setState(() => _backupPermissionGranted = result.isGranted);
   }
 
   String _backupStatusText() {
-    if (kIsWeb || !Platform.isAndroid) {
+    if (kIsWeb) {
       return 'Yedek: uygulama belgeleri klasöründe (sepetler.json)';
     }
-    if (!_backupPermissionGranted) {
-      return 'Kalıcı yedek izni verilmedi (yedek uygulama klasöründe). Dokunarak izin verin.';
-    }
-    return 'Yedek: Documents/GolSepetTakip/sepetler.json';
+    return 'Yedek: uygulama özel belgeler klasöründe (GolSepetTakip/sepetler.json)';
   }
 
   @override
@@ -185,12 +162,21 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
                     TextField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
+                      maxLength: 20,
+                      buildCounter: (
+                        _, {
+                        required currentLength,
+                        required maxLength,
+                        required isFocused,
+                      }) =>
+                          null,
                       decoration: const InputDecoration(
                         labelText: 'WhatsApp Yedekleme Numarası / Grup Numarası',
                         hintText: 'Örn: +905051234567',
                         border: OutlineInputBorder(),
                         prefixIcon: Icon(Icons.phone),
-                        helperText: 'Sepet konumları otomatik paylaşıldığında bu numara hedeflenir.',
+                        helperText:
+                            'E.164 biçiminde (+ülke kodu) girin; geçersiz numara WhatsApp paylaşımını atlar.',
                       ),
                     ),
                   ],
@@ -373,32 +359,23 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
             Card(
               elevation: 1,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(12),
-                onTap: _backupPermissionGranted
-                    ? null
-                    : () => unawaited(_ensureBackupPermission()),
-                child: Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Row(
-                    children: [
-                      Icon(Icons.folder_copy,
-                          size: 20, color: scheme.onSurfaceVariant),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Text(
-                          _backupStatusText(),
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: scheme.onSurfaceVariant,
-                          ),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    Icon(Icons.folder_copy,
+                        size: 20, color: scheme.onSurfaceVariant),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        _backupStatusText(),
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: scheme.onSurfaceVariant,
                         ),
                       ),
-                      if (!_backupPermissionGranted)
-                        Icon(Icons.chevron_right,
-                            size: 20, color: scheme.onSurfaceVariant),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
             ),

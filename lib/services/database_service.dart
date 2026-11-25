@@ -51,8 +51,21 @@ class DatabaseService {
 
   Future<void> _onUpgrade(Database db, int oldVersion, int newVersion) async {
     if (oldVersion < 2) {
-      await db.execute('ALTER TABLE baskets ADD COLUMN start_name TEXT');
-      await db.execute('ALTER TABLE baskets ADD COLUMN end_name TEXT');
+      await _addColumnIfMissing(db, 'start_name', 'TEXT');
+      await _addColumnIfMissing(db, 'end_name', 'TEXT');
+    }
+  }
+
+  /// Sütun yoksa ekler; tekrar çalışan migration'ları idempotent yapar.
+  Future<void> _addColumnIfMissing(
+    Database db,
+    String column,
+    String type,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info(baskets)');
+    final exists = rows.any((row) => row['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE baskets ADD COLUMN $column $type');
     }
   }
 

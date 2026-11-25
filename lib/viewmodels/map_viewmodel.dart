@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart' show kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
@@ -39,6 +40,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   double? _currentHeading;
   bool _isCompassAvailable = false;
   bool _isCompassChecked = false;
+  bool _compassListenerAttached = false;
   StreamSubscription<double>? _compassSubscription;
 
   String _permissionDeniedReason = '';
@@ -132,7 +134,9 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
 
       await _applyBatteryPolicy();
     } catch (e, stack) {
-      debugPrint('MapViewModel.init() başlatma hatası: $e\n$stack');
+      if (kDebugMode) {
+        debugPrint('MapViewModel.init() başlatma hatası: $e\n$stack');
+      }
       _gpsStatusText = 'Başlatma hatası: $e';
       _isGpsError = true;
     }
@@ -517,6 +521,10 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _startCompass() {
+    if (!_compassListenerAttached) {
+      _compassService.isAvailable.addListener(_onCompassAvailabilityChanged);
+      _compassListenerAttached = true;
+    }
     _compassService.start();
     _compassSubscription?.cancel();
     _compassSubscription = _compassService.headings.listen(
@@ -533,7 +541,6 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
         _safeNotify();
       },
     );
-    _compassService.isAvailable.addListener(_onCompassAvailabilityChanged);
   }
 
   void _onCompassAvailabilityChanged() {

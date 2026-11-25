@@ -1,6 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, kDebugMode;
 import 'package:flutter/material.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
@@ -75,7 +75,10 @@ class SettingsService {
         await saveSettings(_settings);
       }
     } catch (e) {
-      debugPrint('SettingsService init: ayarlar okunamadı, varsayılana dönüldü: $e');
+      if (kDebugMode) {
+        debugPrint(
+            'SettingsService init: ayarlar okunamadı, varsayılana dönüldü: $e');
+      }
     }
     themeModeNotifier.value = _parseThemeMode(_settings.themeMode);
   }
@@ -89,7 +92,10 @@ class SettingsService {
       try {
         await _settingsFile!.writeAsString(jsonEncode(_settings.toJson()));
       } catch (e) {
-        debugPrint('SettingsService saveSettings: ayarlar diske yazılamadı: $e');
+        if (kDebugMode) {
+          debugPrint(
+              'SettingsService saveSettings: ayarlar diske yazılamadı: $e');
+        }
       }
     }
   }

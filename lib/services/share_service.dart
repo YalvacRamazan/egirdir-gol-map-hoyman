@@ -7,6 +7,13 @@ class ShareService {
   factory ShareService() => _instance;
   ShareService._internal();
 
+  /// E.164 benzeri doğrulama: + ile başlar, ardından 7-15 rakam gelir.
+  static bool isValidPhoneNumber(String phone) {
+    final cleaned = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    if (!cleaned.startsWith('+')) return false;
+    return RegExp(r'^\d{7,15}$').hasMatch(cleaned.substring(1));
+  }
+
   Future<void> shareBasket(
     BasketModel basket, {
     String? targetPhoneNumber,
@@ -14,7 +21,11 @@ class ShareService {
   }) async {
     final message = formatBasketMessage(basket, currentHeading: currentHeading);
 
-    if (targetPhoneNumber != null && targetPhoneNumber.isNotEmpty) {
+    // Doğrulanmamış numara ile WhatsApp akışına girilmez; konum verisi
+    // yalnızca geçerli hedefe veya kullanıcının seçtiği paylaşım hedefine gider.
+    if (targetPhoneNumber != null &&
+        targetPhoneNumber.isNotEmpty &&
+        isValidPhoneNumber(targetPhoneNumber)) {
       final cleanPhone = targetPhoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
       final whatsappUrl = Uri.parse("whatsapp://send?phone=$cleanPhone&text=${Uri.encodeComponent(message)}");
       final webUrl = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}");

@@ -2,22 +2,21 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart'
-    show debugPrint, kIsWeb, visibleForTesting;
-import 'package:flutter/services.dart';
+    show debugPrint, kDebugMode, kIsWeb, visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'package:map/models/basket_model.dart';
 
-/// Sepet verilerini uygulama silinse dahi yaşayan public
-/// Documents/GolSepetTakip/sepetler.json dosyasına yazar ve geri yükler.
+/// Sepet verilerini uygulama özel belgeler dizinindeki
+/// GolSepetTakip/sepetler.json dosyasına yazar ve geri yükler.
+/// Dizin işletim sistemi koruması altındadır; dışa aktarma kullanıcı
+/// başlatmalı paylaşım akışıyla (ShareService.shareBackup) yapılır.
 class PersistentBackupService {
   static final PersistentBackupService _instance =
       PersistentBackupService._internal();
   factory PersistentBackupService() => _instance;
   PersistentBackupService._internal();
-
-  static const _channel = MethodChannel('com.rumata.gol_sepet_takip/storage');
 
   /// Testlerde yedek dizinini geçici bir klasöre yönlendiren kanca.
   /// Üretimde null kalır; null iken davranış değişmez.
@@ -25,19 +24,8 @@ class PersistentBackupService {
   static Directory? baseDirOverride;
 
   Future<Directory> _backupDir() async {
-    String base;
-    if (baseDirOverride != null) {
-      base = baseDirOverride!.path;
-    } else if (!kIsWeb && Platform.isAndroid) {
-      try {
-        base = await _channel.invokeMethod<String>('getPublicDocumentsDir') ??
-            (await getApplicationDocumentsDirectory()).path;
-      } catch (_) {
-        base = (await getApplicationDocumentsDirectory()).path;
-      }
-    } else {
-      base = (await getApplicationDocumentsDirectory()).path;
-    }
+    final base = baseDirOverride?.path ??
+        (await getApplicationDocumentsDirectory()).path;
     final dir = Directory(p.join(base, 'GolSepetTakip'));
     await dir.create(recursive: true);
     return dir;
@@ -57,7 +45,9 @@ class PersistentBackupService {
       };
       await file.writeAsString(jsonEncode(payload), flush: true);
     } catch (e) {
-      debugPrint('PersistentBackupService exportAll hatası: $e');
+      if (kDebugMode) {
+        debugPrint('PersistentBackupService exportAll hatası: $e');
+      }
     }
   }
 
@@ -69,10 +59,13 @@ class PersistentBackupService {
       final json = jsonDecode(await file.readAsString()) as Map<String, dynamic>;
       final list = json['baskets'] as List<dynamic>? ?? [];
       return list
-          .map((e) => _basketFromJson(e as Map<String, dynamic>))
+          .map((e) => _tryBasketFromJson(e as Map<String, dynamic>))
+          .whereType<BasketModel>()
           .toList();
     } catch (e) {
-      debugPrint('PersistentBackupService loadBackup hatası: $e');
+      if (kDebugMode) {
+        debugPrint('PersistentBackupService loadBackup hatası: $e');
+      }
       return [];
     }
   }
@@ -93,19 +86,56 @@ class PersistentBackupService {
         'isCompleted': b.isCompleted,
       };
 
-  BasketModel _basketFromJson(Map<String, dynamic> json) => BasketModel(
+  /// Yedek kaydını doğrulayıp dönüştürür; geçersiz kayıtlar atlanır.
+  BasketModel? _tryBasketFromJson(Map<String, dynamic> json) {
+    try {
+      final name = json['name'];
+      final startLatitude = (json['startLatitude'] as num?)?.toDouble();
+      final startLongitude = (json['startLongitude'] as num?)?.toDouble();
+      final startTimestampJson = json['startTimestamp'];
+
+      if (name is! String || name.trim().isEmpty) return null;
+      if (startLatitude == null || startLongitude == null) return null;
+      if (!_isValidLatitude(startLatitude) ||
+          !_isValidLongitude(startLongitude)) {
+        return null;
+      }
+      if (startTimestampJson is! String) return null;
+      final startTimestamp = DateTime.tryParse(startTimestampJson);
+      if (startTimestamp == null) return null;
+
+      final endLatitude = (json['endLatitude'] as num?)?.toDouble();
+      final endLongitude = (json['endLongitude'] as num?)?.toDouble();
+      if (endLatitude != null && !_isValidLatitude(endLatitude)) return null;
+      if (endLongitude != null && !_isValidLongitude(endLongitude)) return null;
+
+      DateTime? endTimestamp;
+      final endTimestampJson = json['endTimestamp'];
+      if (endTimestampJson != null) {
+        if (endTimestampJson is! String) return null;
+        endTimestamp = DateTime.tryParse(endTimestampJson);
+        if (endTimestamp == null) return null;
+      }
+
+      return BasketModel(
         id: json['id'] as int?,
-        name: json['name'] as String,
+        name: name,
         startName: json['startName'] as String?,
         endName: json['endName'] as String?,
-        startLatitude: (json['startLatitude'] as num).toDouble(),
-        startLongitude: (json['startLongitude'] as num).toDouble(),
-        endLatitude: (json['endLatitude'] as num?)?.toDouble(),
-        endLongitude: (json['endLongitude'] as num?)?.toDouble(),
-        startTimestamp: DateTime.parse(json['startTimestamp'] as String),
-        endTimestamp: json['endTimestamp'] != null
-            ? DateTime.parse(json['endTimestamp'] as String)
-            : null,
+        startLatitude: startLatitude,
+        startLongitude: startLongitude,
+        endLatitude: endLatitude,
+        endLongitude: endLongitude,
+        startTimestamp: startTimestamp,
+        endTimestamp: endTimestamp,
         isCompleted: json['isCompleted'] as bool? ?? false,
       );
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static bool _isValidLatitude(double value) => value >= -90 && value <= 90;
+
+  static bool _isValidLongitude(double value) => value >= -180 && value <= 180;
 }

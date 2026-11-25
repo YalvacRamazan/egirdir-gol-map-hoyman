@@ -50,7 +50,7 @@ class CompassService {
           }
         },
         onError: (Object error) {
-          debugPrint('CompassService akış hatası: $error');
+          if (kDebugMode) debugPrint('CompassService akış hatası: $error');
           _firstEventTimer?.cancel();
           _isAvailable.value = false;
           _isStarted = false;
@@ -58,7 +58,7 @@ class CompassService {
         cancelOnError: true,
       );
     } catch (e) {
-      debugPrint('CompassService başlatılamadı: $e');
+      if (kDebugMode) debugPrint('CompassService başlatılamadı: $e');
       _firstEventTimer?.cancel();
       _isAvailable.value = false;
       _isStarted = false;

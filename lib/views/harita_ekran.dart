@@ -38,6 +38,24 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
   final SqliteTileProvider _tileProvider = SqliteTileProvider();
 
+  /// Bir kez oluşturulur; her build'de yeni MapOptions örneği camera
+  /// state'ini sıfırlayıp event fırtınası yaratmasın diye sabitlenir.
+  late final MapOptions _mapOptions = MapOptions(
+    initialCenter: _kHoymanGoluMerkezi,
+    initialZoom: 12.0,
+    maxZoom: 18.0,
+    minZoom: 6.0,
+    onTap: (tapPosition, point) => _onMapTap(point),
+    onMapEvent: (event) {
+      if (event.source == MapEventSource.mapController) return;
+      if (_viewModel.isFollowMode) {
+        _viewModel.setFollowMode(false);
+      }
+    },
+  );
+
+  LatLng? _lastFollowedPosition;
+
   bool _isMeasureScheduled = false;
 
   Timer? _proximityBannerTimer;
@@ -71,10 +89,17 @@ class _HaritaEkranState extends State<HaritaEkran> {
 
     if (_viewModel.isFollowMode && _viewModel.currentPosition != null) {
       final pos = _viewModel.currentPosition!;
-      _mapController.move(
-        LatLng(pos.latitude, pos.longitude),
-        _mapController.camera.zoom,
-      );
+      final target = LatLng(pos.latitude, pos.longitude);
+      // Yalnızca konum belirgin şekilde değiştiyse haritayı oynat; her konum
+      // güncellemesinde yapılan move çağrısı gereksiz rebuild zinciri kuruyordu.
+      final moved = _lastFollowedPosition == null ||
+          const Distance().distance(_lastFollowedPosition!, target) > 5;
+      if (moved) {
+        _lastFollowedPosition = target;
+        _mapController.move(target, _mapController.camera.zoom);
+      }
+    } else {
+      _lastFollowedPosition = null;
     }
 
     final alert = _viewModel.proximityAlert;
@@ -153,19 +178,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
             children: [
               FlutterMap(
                 mapController: _mapController,
-                options: MapOptions(
-                  initialCenter: _kHoymanGoluMerkezi,
-                  initialZoom: 12.0,
-                  maxZoom: 18.0,
-                  minZoom: 6.0,
-                  onTap: (tapPosition, point) => _onMapTap(point),
-                  onMapEvent: (event) {
-                    if (event.source == MapEventSource.mapController) return;
-                    if (_viewModel.isFollowMode) {
-                      _viewModel.setFollowMode(false);
-                    }
-                  },
-                ),
+                options: _mapOptions,
                 children: [
                   TileLayer(
                     urlTemplate:
@@ -627,6 +640,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     }
                     _viewModel.setFollowMode(!_viewModel.isFollowMode);
                     if (_viewModel.isFollowMode) {
+                      _lastFollowedPosition = userLatLng;
                       _mapController.move(userLatLng, 15.0);
                     }
                   },
@@ -1146,6 +1160,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
         content: TextField(
           controller: controller,
           autofocus: true,
+          maxLength: 64,
+          buildCounter: (
+            _, {
+            required currentLength,
+            required maxLength,
+            required isFocused,
+          }) =>
+              null,
           decoration: InputDecoration(
             labelText: isStart ? 'A Noktası Adı' : 'B Noktası Adı',
             hintText: defaultName,
@@ -1840,6 +1862,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
             TextField(
               controller: nameController,
               autofocus: true,
+              maxLength: 64,
+              buildCounter: (
+                _, {
+                required currentLength,
+                required maxLength,
+                required isFocused,
+              }) =>
+                  null,
               decoration: const InputDecoration(
                 labelText: 'Sepet Adı / Numarası',
                 border: OutlineInputBorder(),
@@ -1848,6 +1878,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
             const SizedBox(height: 12),
             TextField(
               controller: startNameController,
+              maxLength: 64,
+              buildCounter: (
+                _, {
+                required currentLength,
+                required maxLength,
+                required isFocused,
+              }) =>
+                  null,
               decoration: const InputDecoration(
                 labelText: 'A Noktası Adı',
                 hintText: 'A Noktası',
@@ -1900,6 +1938,14 @@ class _HaritaEkranState extends State<HaritaEkran> {
         content: TextField(
           controller: endNameController,
           autofocus: true,
+          maxLength: 64,
+          buildCounter: (
+            _, {
+            required currentLength,
+            required maxLength,
+            required isFocused,
+          }) =>
+              null,
           decoration: const InputDecoration(
             labelText: 'B Noktası Adı',
             hintText: 'B Noktası',

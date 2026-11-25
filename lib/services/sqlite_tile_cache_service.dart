@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint, kIsWeb;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -53,20 +53,36 @@ class SqliteTileCacheService {
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
-            await db.execute(
-                'ALTER TABLE tiles ADD COLUMN timestamp INTEGER NOT NULL DEFAULT 0');
-            await db.execute(
-                'ALTER TABLE tiles ADD COLUMN size INTEGER NOT NULL DEFAULT 0');
+            await _addColumnIfMissing(
+                db, 'timestamp', 'INTEGER NOT NULL DEFAULT 0');
+            await _addColumnIfMissing(
+                db, 'size', 'INTEGER NOT NULL DEFAULT 0');
             await db.execute('UPDATE tiles SET size = LENGTH(tile_data)');
           }
           if (oldVersion < 3) {
-            await db.execute(
-                'ALTER TABLE tiles ADD COLUMN is_permanent INTEGER NOT NULL DEFAULT 0');
+            await _addColumnIfMissing(
+                db, 'is_permanent', 'INTEGER NOT NULL DEFAULT 0');
           }
         },
       );
-    } catch (_) {
+    } catch (e) {
+      if (kDebugMode) {
+        debugPrint('SqliteTileCacheService init: veritabanı açılamadı: $e');
+      }
       _db = null;
+    }
+  }
+
+  /// Sütun yoksa ekler; tekrar çalışan migration'ları idempotent yapar.
+  static Future<void> _addColumnIfMissing(
+    Database db,
+    String column,
+    String definition,
+  ) async {
+    final rows = await db.rawQuery('PRAGMA table_info(tiles)');
+    final exists = rows.any((row) => row['name'] == column);
+    if (!exists) {
+      await db.execute('ALTER TABLE tiles ADD COLUMN $column $definition');
     }
   }
 

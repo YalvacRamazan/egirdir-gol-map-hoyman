@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
 import 'dart:ui' as ui;
 
 import 'package:flutter/foundation.dart';
@@ -19,11 +20,14 @@ class SqliteTileProvider extends TileProvider {
 
   SqliteTileProvider({this.onNetworkError}) {
     _httpClient.connectionTimeout = const Duration(seconds: 12);
+    _httpClient.idleTimeout = const Duration(seconds: 30);
+    _httpClient.maxConnectionsPerHost = 4;
   }
 
   @override
   void dispose() {
     _httpClient.close(force: false);
+    offline.dispose();
     super.dispose();
   }
 
@@ -92,15 +96,25 @@ class _SqliteTileImageProvider
     }
 
     final url = tileUrlBuilder(coordinates, options);
+    final uri = Uri.tryParse(url);
+    // Yalnızca https tile URL'leri kabul edilir (yanlış yapılandırmaya karşı savunma).
+    if (uri == null || uri.scheme != 'https') {
+      if (kDebugMode) {
+        debugPrint('SqliteTileProvider: geçersiz tile URL reddedildi: $url');
+      }
+      return _decodeBytes(_kTransparentPng, decode);
+    }
     try {
-      final request = await httpClient.getUrl(Uri.parse(url));
+      final request = await httpClient.getUrl(uri);
       tileHeaders.forEach((k, v) => request.headers.set(k, v));
       final response = await request.close();
       if (response.statusCode == 200) {
         _reportOnline();
-        final bytes = await response
-            .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
-        final data = Uint8List.fromList(bytes);
+        final builder = BytesBuilder(copy: false);
+        await for (final chunk in response) {
+          builder.add(chunk);
+        }
+        final data = builder.takeBytes();
         unawaited(cache.saveTile(
           z,
           x,

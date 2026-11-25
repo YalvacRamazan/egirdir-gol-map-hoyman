@@ -13,6 +13,7 @@
 migrate_working_dir/
 Tasks
 plans
+.vscode/
 
 # IntelliJ related
 *.iml
@@ -50,6 +51,11 @@ app.*.map.json
 # Agent Settings
 /SECURITY.md
 /TASK.md
+
+# Release imza anahtarları (asla repoya eklenmez)
+/android/key.properties
+*.jks
+*.keystore
 # flutter SDK
 /flutter/
 # Skiller

@@ -2,8 +2,7 @@
     <application
         android:label="Sepet Takip"
         android:name="${applicationName}"
-        android:icon="@mipmap/ic_launcher"
-        android:requestLegacyExternalStorage="true">
+        android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -37,13 +36,9 @@
          Release derlemede de etkili olması için main manifest'te tanımlanır. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
-    <!-- Kalıcı yedek izinleri: Sepet verileri public Documents/GolSepetTakip klasörüne yazılır.
-         MANAGE_EXTERNAL_STORAGE (API 30+), WRITE_EXTERNAL_STORAGE (API 24-28);
-         API 29 için requestLegacyExternalStorage köprüsü kullanılır. -->
-    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
-    <uses-permission
-        android:name="android.permission.WRITE_EXTERNAL_STORAGE"
-        android:maxSdkVersion="28" />
+    <!-- Not: Depolama izinleri (MANAGE_EXTERNAL_STORAGE / WRITE_EXTERNAL_STORAGE) kaldırıldı.
+         Sepet yedeği uygulama özel belgeler dizinine yazılır; dışa aktarma kullanıcı
+         başlatmalı paylaşım akışıyla yapılır. -->
 
     <!-- Konum izinleri: Kaba ve hassas konum için her ikisi de gereklidir -->
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />

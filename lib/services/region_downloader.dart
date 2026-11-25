@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
 
@@ -29,6 +30,8 @@ class RegionDownloader {
   factory RegionDownloader() => _instance;
   RegionDownloader._internal() {
     _httpClient.connectionTimeout = const Duration(seconds: 12);
+    _httpClient.idleTimeout = const Duration(seconds: 30);
+    _httpClient.maxConnectionsPerHost = 4;
   }
 
   static const String _tileUrlTemplate =
@@ -118,6 +121,7 @@ class RegionDownloader {
     int y,
     SqliteTileCacheService cache,
   ) async {
+    if (_cancelRequested) return false;
     try {
       final url = _tileUrlTemplate
           .replaceFirst('{z}', z.toString())
@@ -126,22 +130,47 @@ class RegionDownloader {
       final request = await _httpClient.getUrl(Uri.parse(url));
       request.headers.set(HttpHeaders.userAgentHeader, _userAgent);
       final response = await request.close();
-      if (response.statusCode == 200) {
-        final bytes = await response
-            .fold<List<int>>([], (prev, chunk) => prev..addAll(chunk));
-        await cache.saveTile(
-          z,
-          x,
-          y,
-          Uint8List.fromList(bytes),
-          permanent: true,
-        );
-        return true;
+      if (response.statusCode != 200) {
+        // 429/5xx ve diğer durum kodları hata sayılır.
+        return false;
       }
-      // 429/5xx ve diğer durum kodları hata sayılır.
-      return false;
+
+      // Akış sırasında iptal gelirse soketi kes; veri diske yazılmaz.
+      final builder = BytesBuilder(copy: false);
+      var cancelled = false;
+      await for (final chunk in response) {
+        if (_cancelRequested) {
+          cancelled = true;
+          break;
+        }
+        builder.add(chunk);
+      }
+      if (cancelled) {
+        await _detachAndDestroy(response);
+        return false;
+      }
+
+      await cache.saveTile(
+        z,
+        x,
+        y,
+        builder.takeBytes(),
+        permanent: true,
+      );
+      return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// Yanıtın tuttuğu soketi serbest bırakır; iptal edilen indirmelerin
+  /// bağlantı havuzunda askıda kalmamasını sağlar.
+  Future<void> _detachAndDestroy(HttpClientResponse response) async {
+    try {
+      final socket = await response.detachSocket();
+      socket.destroy();
+    } catch (_) {
+      // Soket zaten kapalı olabilir.
     }
   }
 }

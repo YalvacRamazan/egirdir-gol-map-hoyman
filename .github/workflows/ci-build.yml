@@ -4,6 +4,13 @@ name: CI Build (ci-build)
 on:
   push:
     branches: [ci-build]
+    paths-ignore:
+      - 'README.md'
+      - 'LICENSE'
+      - '**/*.md'
+      - 'doc/**'
+      - 'plans/**'
+      - 'Tasks/**'
   workflow_dispatch:
 
 env:

@@ -142,5 +142,6 @@ class LocationService {
   void dispose() {
     _positionStreamSubscription?.cancel();
     _positionStreamSubscription = null;
+    _positionController.close();
   }
 }
