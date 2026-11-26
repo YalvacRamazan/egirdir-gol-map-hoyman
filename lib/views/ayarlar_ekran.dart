@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:map/services/region_downloader.dart';
 import 'package:map/services/settings_service.dart';
@@ -19,7 +18,6 @@ class AyarlarEkran extends StatefulWidget {
 
 class _AyarlarEkranState extends State<AyarlarEkran> {
   final _settingsService = SettingsService();
-  final _phoneController = TextEditingController();
   double _accuracyThreshold = 15.0;
   String _themeMode = 'system';
   bool _autoBoostEnabled = true;
@@ -29,7 +27,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
   @override
   void initState() {
     super.initState();
-    _phoneController.text = _settingsService.settings.backupPhoneNumber;
     _accuracyThreshold = _settingsService.settings.gpsAccuracyThreshold;
     _themeMode = _settingsService.settings.themeMode;
     _autoBoostEnabled = _settingsService.settings.autoBoostEnabled;
@@ -37,22 +34,13 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     _proximityThreshold = _settingsService.settings.proximityThreshold;
   }
 
-  String _backupStatusText() {
-    if (kIsWeb) {
-      return 'Yedek: uygulama belgeleri klasöründe (sepetler.json)';
-    }
-    return 'Yedek: uygulama özel belgeler klasöründe (GolSepetTakip/sepetler.json)';
-  }
-
   @override
   void dispose() {
-    _phoneController.dispose();
     super.dispose();
   }
 
   Future<void> _saveSettings() async {
     final updatedSettings = AppSettings(
-      backupPhoneNumber: _phoneController.text.trim(),
       gpsAccuracyThreshold: _accuracyThreshold,
       themeMode: _themeMode,
       autoBoostEnabled: _autoBoostEnabled,
@@ -79,7 +67,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
     setState(() => _themeMode = value);
     await _settingsService.saveSettings(
       AppSettings(
-        backupPhoneNumber: _phoneController.text.trim(),
         gpsAccuracyThreshold: _accuracyThreshold,
         themeMode: value,
         autoBoostEnabled: _autoBoostEnabled,
@@ -144,39 +131,14 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
-                child: Column(
+                child: Row(
                   children: [
-                    Row(
-                      children: [
-                        Icon(Icons.security, color: scheme.primary),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Text(
-                            'Verileriniz güvende. Bu uygulama hiçbir harici sunucuya veri göndermez. Tüm bilgiler yerel veritabanınızda saklanır.',
-                            style: TextStyle(fontSize: 13, color: scheme.onSurface),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const Divider(height: 24),
-                    TextField(
-                      controller: _phoneController,
-                      keyboardType: TextInputType.phone,
-                      maxLength: 20,
-                      buildCounter: (
-                        _, {
-                        required currentLength,
-                        required maxLength,
-                        required isFocused,
-                      }) =>
-                          null,
-                      decoration: const InputDecoration(
-                        labelText: 'WhatsApp Yedekleme Numarası / Grup Numarası',
-                        hintText: 'Örn: +905051234567',
-                        border: OutlineInputBorder(),
-                        prefixIcon: Icon(Icons.phone),
-                        helperText:
-                            'E.164 biçiminde (+ülke kodu) girin; geçersiz numara WhatsApp paylaşımını atlar.',
+                    Icon(Icons.security, color: scheme.primary),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Verileriniz güvende. Bu uygulama hiçbir harici sunucuya veri göndermez. Tüm bilgiler yerel veritabanınızda saklanır.',
+                        style: TextStyle(fontSize: 13, color: scheme.onSurface),
                       ),
                     ),
                   ],
@@ -356,30 +318,6 @@ class _AyarlarEkranState extends State<AyarlarEkran> {
 
             _sectionTitle(context, 'Veri Yönetimi'),
             const SizedBox(height: 8),
-            Card(
-              elevation: 1,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Row(
-                  children: [
-                    Icon(Icons.folder_copy,
-                        size: 20, color: scheme.onSurfaceVariant),
-                    const SizedBox(width: 10),
-                    Expanded(
-                      child: Text(
-                        _backupStatusText(),
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 12),
             SizedBox(
               width: double.infinity,
               child: ElevatedButton.icon(

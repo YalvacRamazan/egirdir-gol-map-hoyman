@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -36,7 +37,12 @@ class _HaritaEkranState extends State<HaritaEkran> {
   final MapController _mapController = MapController();
   final _settingsService = SettingsService();
 
-  final SqliteTileProvider _tileProvider = SqliteTileProvider();
+  late final SqliteTileProvider _tileProvider = SqliteTileProvider(
+    onBackOnline: _onTileNetworkBackOnline,
+  );
+
+  /// Online'a dönüşte artar; TileLayer ValueKey ile yeniden mount edilir.
+  int _tileGeneration = 0;
 
   /// Bir kez oluşturulur; her build'de yeni MapOptions örneği camera
   /// state'ini sıfırlayıp event fırtınası yaratmasın diye sabitlenir.
@@ -118,6 +124,13 @@ class _HaritaEkranState extends State<HaritaEkran> {
     SystemSound.play(SystemSoundType.alert);
   }
 
+  /// Offline'dan online'a geçildiğinde TileLayer'ı yeniden mount eder;
+  /// ImageCache'te kalmış hatalı/boş tile'lar yerine taze tile'lar istenir.
+  void _onTileNetworkBackOnline() {
+    if (!mounted) return;
+    setState(() => _tileGeneration++);
+  }
+
   void _scheduleProximityBannerDismiss() {
     _proximityBannerTimer?.cancel();
     _proximityBannerTimer = Timer(const Duration(seconds: 4), () {
@@ -181,6 +194,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 options: _mapOptions,
                 children: [
                   TileLayer(
+                    key: ValueKey('tile-layer-$_tileGeneration'),
                     urlTemplate:
                         'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                     userAgentPackageName: 'com.rumata.gol_sepet_takip',
@@ -472,8 +486,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                           MaterialPageRoute(
                             builder: (context) => KatalogSayfasi(
                               viewModel: _viewModel,
-                              backupPhoneNumber:
-                                  _settingsService.settings.backupPhoneNumber,
                             ),
                           ),
                         );
@@ -519,24 +531,7 @@ class _HaritaEkranState extends State<HaritaEkran> {
                                 'Varış ~${formatHourMinute(estimatedArrival)}',
                           ),
                         ],
-                        ListenableBuilder(
-                          listenable: _tileProvider.offline,
-                          builder: (context, _) {
-                            if (!_tileProvider.offline.value) {
-                              return const SizedBox.shrink();
-                            }
-                            return Padding(
-                              padding: const EdgeInsets.only(left: 8),
-                              child: Semantics(
-                                label: 'Çevrimdışı: harita önbellekten gösteriliyor',
-                                child: const StatusPill(
-                                  icon: Icons.wifi_off,
-                                  text: 'Çevrimdışı: önbellekten gösteriliyor',
-                                ),
-                              ),
-                            );
-                          },
-                        ),
+                        OfflineBadge(offline: _tileProvider.offline),
                       ],
                     ),
                   ),
@@ -1735,8 +1730,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                     onPressed: () {
                       ShareService().shareBasket(
                         selected,
-                        targetPhoneNumber:
-                            _settingsService.settings.backupPhoneNumber,
                         currentHeading: _viewModel.currentHeading,
                       );
                     },
@@ -1997,8 +1990,6 @@ class _HaritaEkranState extends State<HaritaEkran> {
                 Navigator.pop(context);
                 ShareService().shareBasket(
                   completed,
-                  targetPhoneNumber:
-                      _settingsService.settings.backupPhoneNumber,
                   currentHeading: _viewModel.currentHeading,
                 );
               },
@@ -2008,5 +1999,34 @@ class _HaritaEkranState extends State<HaritaEkran> {
         ),
       );
     }
+  }
+}
+
+/// Çevrimdışı rozetini kendi dinleyicisiyle izole eder: notifier değişince
+/// yalnızca bu küçük widget yeniden kurulur, tüm harita ekranı rebuild
+/// olmaz (sürekli render sorununu önler).
+class OfflineBadge extends StatelessWidget {
+  final ValueListenable<bool> offline;
+
+  const OfflineBadge({super.key, required this.offline});
+
+  @override
+  Widget build(BuildContext context) {
+    return ListenableBuilder(
+      listenable: offline,
+      builder: (context, _) {
+        if (!offline.value) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Semantics(
+            label: 'Çevrimdışı: harita önbellekten gösteriliyor',
+            child: const StatusPill(
+              icon: Icons.wifi_off,
+              text: 'Çevrimdışı: önbellekten gösteriliyor',
+            ),
+          ),
+        );
+      },
+    );
   }
 }

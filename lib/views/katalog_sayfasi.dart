@@ -6,12 +6,10 @@ import 'package:map/viewmodels/map_viewmodel.dart';
 
 class KatalogSayfasi extends StatelessWidget {
   final MapViewModel viewModel;
-  final String? backupPhoneNumber;
 
   const KatalogSayfasi({
     super.key,
     required this.viewModel,
-    this.backupPhoneNumber,
   });
 
   @override
@@ -110,10 +108,7 @@ class KatalogSayfasi extends StatelessWidget {
                           ),
                           tooltip: 'Paylaş',
                           onPressed: () {
-                            ShareService().shareBasket(
-                              basket,
-                              targetPhoneNumber: backupPhoneNumber,
-                            );
+                            ShareService().shareBasket(basket);
                           },
                         ),
                         IconButton(

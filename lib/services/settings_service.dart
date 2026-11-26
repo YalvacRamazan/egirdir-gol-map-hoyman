@@ -6,7 +6,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 
 class AppSettings {
-  String backupPhoneNumber;
   double gpsAccuracyThreshold;
   String themeMode;
   bool autoBoostEnabled;
@@ -14,7 +13,6 @@ class AppSettings {
   double proximityThreshold;
 
   AppSettings({
-    this.backupPhoneNumber = '',
     this.gpsAccuracyThreshold = 15.0,
     this.themeMode = 'system',
     this.autoBoostEnabled = true,
@@ -23,7 +21,6 @@ class AppSettings {
   });
 
   Map<String, dynamic> toJson() => {
-        'backupPhoneNumber': backupPhoneNumber,
         'gpsAccuracyThreshold': gpsAccuracyThreshold,
         'themeMode': themeMode,
         'autoBoostEnabled': autoBoostEnabled,
@@ -31,9 +28,10 @@ class AppSettings {
         'proximityThreshold': proximityThreshold,
       };
 
+  // Eski dosyalardaki kullanımdan kalkmış anahtarlar (ör. backupPhoneNumber)
+  // okunurken sessizce yok sayılır; geriye dönük uyum korunur.
   factory AppSettings.fromJson(Map<String, dynamic> json) {
     return AppSettings(
-      backupPhoneNumber: json['backupPhoneNumber'] as String? ?? '',
       gpsAccuracyThreshold: (json['gpsAccuracyThreshold'] as num?)?.toDouble() ?? 15.0,
       themeMode: json['themeMode'] as String? ?? 'system',
       autoBoostEnabled: json['autoBoostEnabled'] as bool? ?? true,

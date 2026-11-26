@@ -7,36 +7,29 @@ class ShareService {
   factory ShareService() => _instance;
   ShareService._internal();
 
-  /// E.164 benzeri doğrulama: + ile başlar, ardından 7-15 rakam gelir.
-  static bool isValidPhoneNumber(String phone) {
-    final cleaned = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    if (!cleaned.startsWith('+')) return false;
-    return RegExp(r'^\d{7,15}$').hasMatch(cleaned.substring(1));
-  }
-
+  /// Sepet bilgisini paylaşır. Alıcı seçimi WhatsApp'a bırakılır: uygulama
+  /// numara zorunluluğu aramaz, WhatsApp'ın paylaşım ekranı açılır ve
+  /// kullanıcı grup ya da kişiyi kendisi seçer. WhatsApp kurulu değilse
+  /// wa.me bağlantısı, o da açılmazsa sistem paylaşım sayfası kullanılır.
   Future<void> shareBasket(
     BasketModel basket, {
-    String? targetPhoneNumber,
     double? currentHeading,
   }) async {
     final message = formatBasketMessage(basket, currentHeading: currentHeading);
 
-    // Doğrulanmamış numara ile WhatsApp akışına girilmez; konum verisi
-    // yalnızca geçerli hedefe veya kullanıcının seçtiği paylaşım hedefine gider.
-    if (targetPhoneNumber != null &&
-        targetPhoneNumber.isNotEmpty &&
-        isValidPhoneNumber(targetPhoneNumber)) {
-      final cleanPhone = targetPhoneNumber.replaceAll(RegExp(r'[^0-9+]'), '');
-      final whatsappUrl = Uri.parse("whatsapp://send?phone=$cleanPhone&text=${Uri.encodeComponent(message)}");
-      final webUrl = Uri.parse("https://wa.me/$cleanPhone?text=${Uri.encodeComponent(message)}");
+    // Numarasız whatsapp://send: WhatsApp açılır, alıcıyı kullanıcı seçer.
+    final whatsappUrl = Uri.parse(
+        'whatsapp://send?text=${Uri.encodeComponent(message)}');
+    if (await canLaunchUrl(whatsappUrl)) {
+      await launchUrl(whatsappUrl);
+      return;
+    }
 
-      if (await canLaunchUrl(whatsappUrl)) {
-        await launchUrl(whatsappUrl);
-        return;
-      } else if (await canLaunchUrl(webUrl)) {
-        await launchUrl(webUrl);
-        return;
-      }
+    final webUrl =
+        Uri.parse('https://wa.me/?text=${Uri.encodeComponent(message)}');
+    if (await canLaunchUrl(webUrl)) {
+      await launchUrl(webUrl, mode: LaunchMode.externalApplication);
+      return;
     }
 
     await SharePlus.instance.share(

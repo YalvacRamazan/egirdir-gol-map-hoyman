@@ -43,6 +43,17 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   bool _compassListenerAttached = false;
   StreamSubscription<double>? _compassSubscription;
 
+  // Pusula bildirim kısıtı: sensör her olayda notify fırlatırsa tüm ekran
+  // (FlutterMap dahil) saniyede onlarca kez rebuild olur. En az minDelta
+  // derece değişim ve minInterval aralıkla bildir; son değer trailing
+  // notify ile kaçmaz.
+  static const double minHeadingDeltaDegrees = 1.0;
+  static const Duration minHeadingNotifyInterval = Duration(milliseconds: 100);
+  double? _lastNotifiedHeading;
+  DateTime _lastHeadingNotifyAt = DateTime.fromMillisecondsSinceEpoch(0);
+  Timer? _pendingHeadingNotify;
+  bool _pendingHeadingIsDirty = false;
+
   String _permissionDeniedReason = '';
   bool _isPermissionPermanentlyDenied = false;
 
@@ -528,17 +539,60 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     _compassService.start();
     _compassSubscription?.cancel();
     _compassSubscription = _compassService.headings.listen(
-      (double heading) {
-        _currentHeading = heading;
-        _isCompassAvailable = true;
-        _isCompassChecked = true;
-        _safeNotify();
-      },
+      _onHeading,
       onError: (Object error) {
         debugPrint('Pusula akış hatası: $error');
         _isCompassAvailable = false;
         _isCompassChecked = true;
         _safeNotify();
+      },
+    );
+  }
+
+  void _onHeading(double heading) {
+    _currentHeading = heading;
+    _isCompassAvailable = true;
+    _isCompassChecked = true;
+    _maybeNotifyHeading(DateTime.now());
+  }
+
+  /// Bildirim kararı: son bildirimden bu yana yeterli açı değişimi ve
+  /// yeterli süre geçtiyse hemen bildir; geçmediyse trailing notify kur.
+  void _maybeNotifyHeading(DateTime now) {
+    final decision = shouldEmitHeading(
+      lastNotified: _lastNotifiedHeading,
+      current: _currentHeading!,
+      lastNotifyAt: _lastHeadingNotifyAt,
+      now: now,
+    );
+    final due = decision.emitNow;
+
+    if (due) {
+      _pendingHeadingNotify?.cancel();
+      _pendingHeadingNotify = null;
+      _pendingHeadingIsDirty = false;
+      _lastNotifiedHeading = _currentHeading;
+      _lastHeadingNotifyAt = now;
+      _safeNotify();
+      return;
+    }
+
+    // Aralık dolmadan gelen güncellemeleri trailing notify ile birleştir.
+    if (_pendingHeadingNotify != null) {
+      _pendingHeadingIsDirty = true;
+      return;
+    }
+    final wait = decision.waitBeforeTrailing;
+    _pendingHeadingNotify = Timer(
+      wait.isNegative ? Duration.zero : wait,
+      () {
+        _pendingHeadingNotify = null;
+        if (_pendingHeadingIsDirty && !_isDisposed) {
+          _pendingHeadingIsDirty = false;
+          _lastNotifiedHeading = _currentHeading;
+          _lastHeadingNotifyAt = DateTime.now();
+          _safeNotify();
+        }
       },
     );
   }
@@ -560,6 +614,7 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   @override
   void dispose() {
     _isDisposed = true;
+    _pendingHeadingNotify?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     _compassService.isAvailable.removeListener(_onCompassAvailabilityChanged);
     _compassSubscription?.cancel();
@@ -569,3 +624,58 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
     super.dispose();
   }
 }
+
+/// Pusula bildirim kısıtının saf karar sonucu.
+class HeadingEmitDecision {
+  final bool emitNow;
+
+  /// emitNow false ise trailing notify öncesi beklenecek süre.
+  final Duration waitBeforeTrailing;
+
+  const HeadingEmitDecision({
+    required this.emitNow,
+    required this.waitBeforeTrailing,
+  });
+}
+
+/// Pusula bildirim kısıtı (saf, test edilebilir): son bildirimden bu yana
+/// en az [minHeadingDeltaDegrees] derece değişim ve
+/// [minHeadingNotifyInterval] süre geçtiyse hemen bildir; aksi halde
+/// trailing notify için beklenen süreyi döndürür.
+HeadingEmitDecision shouldEmitHeading({
+  required double? lastNotified,
+  required double current,
+  required DateTime lastNotifyAt,
+  required DateTime now,
+}) {
+  // İlk pusula verisi: kısıtsız hemen bildir; kullanıcı pusula okunu
+  // ilk açılışta görmelidir.
+  if (lastNotified == null) {
+    return const HeadingEmitDecision(
+      emitNow: true,
+      waitBeforeTrailing: Duration.zero,
+    );
+  }
+  final delta = headingDelta(lastNotified, current);
+  final elapsed = now.difference(lastNotifyAt);
+  final due = delta >= MapViewModel.minHeadingDeltaDegrees &&
+      elapsed >= MapViewModel.minHeadingNotifyInterval;
+  if (due) {
+    return const HeadingEmitDecision(
+      emitNow: true,
+      waitBeforeTrailing: Duration.zero,
+    );
+  }
+  final wait = MapViewModel.minHeadingNotifyInterval - elapsed;
+  return HeadingEmitDecision(
+    emitNow: false,
+    waitBeforeTrailing: wait.isNegative ? Duration.zero : wait,
+  );
+}
+
+/// 0-180 aralığında en kısa açı farkı.
+double headingDelta(double a, double b) {
+  final d = (a - b).abs() % 360;
+  return d > 180 ? 360 - d : d;
+}
+

@@ -10,15 +10,26 @@ import 'package:flutter_map/flutter_map.dart';
 import 'hoyman_tile_region.dart';
 import 'sqlite_tile_cache_service.dart';
 
+/// Tile istekleri ağ hatasıyla sonuçlandığında offline moda geçer; offline
+/// modda yalnızca önbellek kullanılır ve periyodik probe ile bağlantının
+/// dönüp dönmediği kontrol edilir. Bağlantı dönünce onBackOnline çağrılır.
 class SqliteTileProvider extends TileProvider {
   final _cache = SqliteTileCacheService();
   final HttpClient _httpClient = HttpClient();
 
   final ValueNotifier<bool> offline = ValueNotifier<bool>(false);
 
-  final void Function()? onNetworkError;
+  /// Offline'dan online'a geçişte tetiklenir; harita görünür tile'ları
+  /// yeniden istemek için bunu kullanır.
+  final void Function()? onBackOnline;
 
-  SqliteTileProvider({this.onNetworkError}) {
+  /// Offline moddayken bağlantıyı denemek için aralık.
+  static const Duration probeInterval = Duration(seconds: 20);
+
+  Timer? _probeTimer;
+  bool _probing = false;
+
+  SqliteTileProvider({this.onBackOnline}) {
     _httpClient.connectionTimeout = const Duration(seconds: 12);
     _httpClient.idleTimeout = const Duration(seconds: 30);
     _httpClient.maxConnectionsPerHost = 4;
@@ -26,6 +37,7 @@ class SqliteTileProvider extends TileProvider {
 
   @override
   void dispose() {
+    _probeTimer?.cancel();
     _httpClient.close(force: false);
     offline.dispose();
     super.dispose();
@@ -41,8 +53,45 @@ class SqliteTileProvider extends TileProvider {
       tileUrlBuilder: (c, o) => getTileUrl(c, o),
       tileHeaders: headers,
       offline: offline,
-      onNetworkError: onNetworkError,
+      onNetworkError: _enterOfflineMode,
     );
+  }
+
+  void _enterOfflineMode() {
+    if (!offline.value) {
+      offline.value = true;
+    }
+    _scheduleProbe();
+  }
+
+  void _scheduleProbe() {
+    if (_probeTimer != null) return;
+    _probeTimer = Timer(probeInterval, () {
+      _probeTimer = null;
+      _runProbe();
+    });
+  }
+
+  /// Offline moddayken bağlantıyı yoklar; başarılıysa online moda döner.
+  Future<void> _runProbe() async {
+    if (!offline.value || _probing) return;
+    _probing = true;
+    try {
+      final request = await _httpClient
+          .getUrl(Uri.parse('https://tile.openstreetmap.org/0/0/0.png'))
+          .timeout(const Duration(seconds: 8));
+      final response = await request.close().timeout(const Duration(seconds: 8));
+      await response.drain<void>();
+      if (response.statusCode == 200 && offline.value) {
+        offline.value = false;
+        onBackOnline?.call();
+      }
+    } catch (_) {
+      // Bağlantı hâlâ yok; sonraki probe denemesini planla.
+    } finally {
+      _probing = false;
+      if (offline.value) _scheduleProbe();
+    }
   }
 }
 
@@ -95,6 +144,13 @@ class _SqliteTileImageProvider
       return _decodeBytes(cached, decode);
     }
 
+    // Offline modda ağ isteği yapılmaz; tile yoksa hata fırlatılır.
+    // Hata, ImageCache'e boş görsel yazılmasını engeller ve tile daha sonra
+    // tekrar denenebilir kalır.
+    if (offline.value) {
+      throw StateError('Tile offline modda önbellekte yok: $z/$x/$y');
+    }
+
     final url = tileUrlBuilder(coordinates, options);
     final uri = Uri.tryParse(url);
     // Yalnızca https tile URL'leri kabul edilir (yanlış yapılandırmaya karşı savunma).
@@ -102,14 +158,14 @@ class _SqliteTileImageProvider
       if (kDebugMode) {
         debugPrint('SqliteTileProvider: geçersiz tile URL reddedildi: $url');
       }
-      return _decodeBytes(_kTransparentPng, decode);
+      throw StateError('Geçersiz tile URL: $url');
     }
     try {
       final request = await httpClient.getUrl(uri);
       tileHeaders.forEach((k, v) => request.headers.set(k, v));
       final response = await request.close();
       if (response.statusCode == 200) {
-        _reportOnline();
+        _goOnline();
         final builder = BytesBuilder(copy: false);
         await for (final chunk in response) {
           builder.add(chunk);
@@ -129,18 +185,15 @@ class _SqliteTileImageProvider
       _reportNetworkError();
     }
 
-    return _decodeBytes(_kTransparentPng, decode);
+    throw StateError('Tile yüklenemedi: $z/$x/$y');
   }
 
-  void _reportOnline() {
+  void _goOnline() {
     if (offline.value) offline.value = false;
   }
 
   void _reportNetworkError() {
-    if (!offline.value) {
-      offline.value = true;
-      onNetworkError?.call();
-    }
+    onNetworkError?.call();
   }
 
   Future<ImageInfo> _decodeBytes(
@@ -166,15 +219,3 @@ class _SqliteTileImageProvider
   @override
   int get hashCode => Object.hash(coordinates, options.urlTemplate);
 }
-
-final Uint8List _kTransparentPng = Uint8List.fromList([
-  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
-  0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52,
-  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01,
-  0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
-  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41,
-  0x54, 0x78, 0x9C, 0x62, 0x00, 0x01, 0x00, 0x00,
-  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00,
-  0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
-  0x42, 0x60, 0x82,
-]);
