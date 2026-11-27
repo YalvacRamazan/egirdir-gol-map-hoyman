@@ -2,15 +2,21 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter_compass/flutter_compass.dart';
+import 'package:map/utils/bearing.dart';
 
 class CompassService {
   static const Duration _firstEventTimeout = Duration(seconds: 3);
+
+  /// Ham sensör değerine uygulanan dairesel EMA katsayısı: iğnenin sensör
+  /// gürültüsünde sık atlamasını önler (0/360 sarımı dairesel ortalanır).
+  static const double smoothingAlpha = 0.12;
 
   final ValueNotifier<bool> _isAvailable = ValueNotifier<bool>(false);
   bool _isStarted = false;
   bool _isDisposed = false;
   StreamSubscription<CompassEvent>? _subscription;
   Timer? _firstEventTimer;
+  double? _smoothedHeading;
 
   Stream<double> get headings => _headingController.stream;
   final StreamController<double> _headingController =
@@ -46,7 +52,12 @@ class CompassService {
           _firstEventTimer?.cancel();
           _isAvailable.value = true;
           if (!_headingController.isClosed) {
-            _headingController.add(heading);
+            _smoothedHeading = smoothHeadingCircular(
+              _smoothedHeading,
+              heading,
+              alpha: smoothingAlpha,
+            );
+            _headingController.add(_smoothedHeading!);
           }
         },
         onError: (Object error) {
@@ -72,6 +83,7 @@ class CompassService {
     _subscription = null;
     _isStarted = false;
     _isAvailable.value = false;
+    _smoothedHeading = null;
   }
 
   void dispose() {

@@ -550,6 +550,9 @@ class MapViewModel extends ChangeNotifier with WidgetsBindingObserver {
   }
 
   void _onHeading(double heading) {
+    // CompassService zaten dairesel EMA ile yumuşatır; burada yalnızca
+    // NaN gibi sonlu olmayan değerler savunmada elenir.
+    if (!heading.isFinite) return;
     _currentHeading = heading;
     _isCompassAvailable = true;
     _isCompassChecked = true;

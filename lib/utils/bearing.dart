@@ -39,3 +39,29 @@ String? cardinalLabel(double heading) {
   const labels = ['K', 'D', 'G', 'B'];
   return labels[((normalized + 45.0) / 90.0).floor() % 4];
 }
+
+/// Dairesel üstel yumuşatma (0/360 sarımına dayanıklı EMA): pusula iğnesinin
+/// sensör gürültüsünde sık atlamasını önler. Önceki ve anlık açı birim
+/// vektörlere çevrilip ağırlıklı ortalanır; [alpha] anlık değerin payıdır.
+/// [previous] null ya da sonlu değilse [current] aynen döner; [current]
+/// sonlu değilse [previous] korunur. Tam zıt açılarda sıfır vektör
+/// riskine karşı önceki değer döner.
+double smoothHeadingCircular(
+  double? previous,
+  double current, {
+  double alpha = 0.12,
+}) {
+  if (previous == null || !previous.isFinite) return current;
+  if (!current.isFinite) return previous;
+
+  final prevRad = previous * math.pi / 180.0;
+  final curRad = current * math.pi / 180.0;
+  final sin = (1 - alpha) * math.sin(prevRad) + alpha * math.sin(curRad);
+  final cos = (1 - alpha) * math.cos(prevRad) + alpha * math.cos(curRad);
+
+  final magnitude = math.sqrt(sin * sin + cos * cos);
+  if (magnitude < 1e-6) return previous;
+
+  final degrees = math.atan2(sin, cos) * 180.0 / math.pi;
+  return (degrees + 360.0) % 360.0;
+}

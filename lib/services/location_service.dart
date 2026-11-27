@@ -119,8 +119,11 @@ class LocationService {
         distanceFilter: 0,
       );
     } else {
+      // high: Android'de PRIORITY_HIGH_ACCURACY (gerçek GPS). medium
+      // (balanced power) şebeke konumuna düşer; göl üzerinde sabit/hiç
+      // güncelleme üretir, uzaklık ve yakınlık uyarısı donar.
       return const LocationSettings(
-        accuracy: LocationAccuracy.medium,
+        accuracy: LocationAccuracy.high,
         distanceFilter: 5,
       );
     }

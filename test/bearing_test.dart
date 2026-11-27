@@ -102,6 +102,55 @@ void main() {
     test('Infinity → null', () => expect(cardinalLabel(double.infinity), isNull));
   });
 
+  group('smoothHeadingCircular (pusula yumuşatma)', () {
+    test('previous null iken current aynen döner', () {
+      expect(smoothHeadingCircular(null, 90), 90);
+    });
+
+    test('previous sonlu değilse current aynen döner', () {
+      expect(smoothHeadingCircular(double.nan, 90), 90);
+    });
+
+    test('current sonlu değilse previous korunur', () {
+      expect(smoothHeadingCircular(90, double.nan), 90);
+      expect(smoothHeadingCircular(90, double.infinity), 90);
+    });
+
+    test('aynı açı aynı açıyı döner', () {
+      expect(smoothHeadingCircular(45, 45), closeTo(45, 1e-9));
+    });
+
+    test('sonuç previous ile current arasında kalır (kısa yoldan)', () {
+      // 350 → 10: kısa yol 350 → 360/0 → 10 yönündedir.
+      final smoothed = smoothHeadingCircular(350, 10);
+      // Dairesel ortalama 350'nin saat yönünde ilerlemiş hali olmalı.
+      final delta = shortestAngleDifference(smoothed, 350);
+      expect(delta, greaterThan(0));
+      expect(delta, lessThan(10));
+    });
+
+    test('0/360 sarımında sıçramaz', () {
+      final smoothed = smoothHeadingCircular(359, 1);
+      // 359 ile 1 arasındaki dairesel orta ~0 civarında olmalı.
+      final delta = headingDeltaForTest(smoothed, 0);
+      expect(delta, lessThan(2));
+    });
+
+    test('alpha=1 tamamen current değerine geçer', () {
+      expect(smoothHeadingCircular(350, 10, alpha: 1), closeTo(10, 1e-9));
+    });
+
+    test('sonuç her zaman [0, 360) aralığında', () {
+      for (double prev = 0; prev < 360; prev += 30) {
+        for (double cur = 0; cur < 360; cur += 30) {
+          final smoothed = smoothHeadingCircular(prev, cur);
+          expect(smoothed >= 0 && smoothed < 360, isTrue,
+              reason: 'prev=$prev cur=$cur smoothed=$smoothed');
+        }
+      }
+    });
+  });
+
   group('BasketModel bearing getter', () {
     test('initialBearing A→B bearing üretmeli', () {
       final basket = BasketModel(
@@ -167,4 +216,9 @@ void main() {
       expect(basket.initialBearingFrom(45), isNull);
     });
   });
+}
+
+double headingDeltaForTest(double a, double b) {
+  final d = (a - b).abs() % 360;
+  return d > 180 ? 360 - d : d;
 }
